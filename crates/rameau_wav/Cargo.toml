@@ -1,0 +1,7 @@
+[package]
+name = "rameau_wav"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rameau_clip = { path = "../rameau_clip" }
