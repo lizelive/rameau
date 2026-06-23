@@ -1,0 +1,8 @@
+[package]
+name = "rameau_tinyaudio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rameau_playback = { path = "../rameau_playback" }
+tinyaudio = "2"
