@@ -6,6 +6,19 @@ impl MidiProgram {
     pub fn display_number(&self) -> u8 {
         self.0 + 1
     }
+
+    /// The raw 0-based General MIDI program number (`0..=127`).
+    #[inline]
+    pub const fn index(&self) -> u8 {
+        self.0
+    }
+}
+
+impl From<MidiProgram> for u8 {
+    #[inline]
+    fn from(p: MidiProgram) -> u8 {
+        p.0
+    }
 }
 impl From<u8> for MidiProgram {
     #[inline]

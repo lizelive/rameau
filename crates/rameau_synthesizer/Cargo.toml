@@ -4,3 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rameau_clip = { path = "../rameau_clip" }
+rameau_midi = { path = "../rameau_midi" }
+rameau_soundfont = { path = "../rameau_soundfont" }
+
+[dev-dependencies]
+rameau_playback = { path = "../rameau_playback" }
+rameau_tinyaudio = { path = "../rameau_tinyaudio" }
+rameau_wav = { path = "../rameau_wav" }
+
+[[example]]
+name = "interactive"
+path = "examples/interactive.rs"
+
+[[example]]
+name = "render_score"
+path = "examples/render_score.rs"

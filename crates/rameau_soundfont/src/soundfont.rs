@@ -237,6 +237,10 @@ impl AudioClip for Sample {
         self.clip.data()
     }
 
+    fn data_mut(&mut self) -> &mut [i16] {
+        self.clip.data_mut()
+    }
+
     fn sample_rate(&self) -> u32 {
         self.clip.sample_rate()
     }

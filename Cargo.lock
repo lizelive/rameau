@@ -404,6 +404,14 @@ dependencies = [
 [[package]]
 name = "rameau_synthesizer"
 version = "0.1.0"
+dependencies = [
+ "rameau_clip",
+ "rameau_midi",
+ "rameau_playback",
+ "rameau_soundfont",
+ "rameau_tinyaudio",
+ "rameau_wav",
+]
 
 [[package]]
 name = "rameau_theory"

@@ -19,6 +19,12 @@ pub trait AudioClip {
     /// The audio samples, in playback order.
     fn data(&self) -> &[Self::Value];
 
+    /// The audio samples, mutably, in playback order.
+    ///
+    /// This is the hot path for a renderer that fills a fixed-size block: take
+    /// the slice once and write every sample without bounds-checking churn.
+    fn data_mut(&mut self) -> &mut [Self::Value];
+
     /// Playback sample rate in Hz.
     fn sample_rate(&self) -> u32;
 }
@@ -47,21 +53,12 @@ impl<T> AudioClip for Clip<T> {
         &self.data
     }
 
+    fn data_mut(&mut self) -> &mut [T] {
+        &mut self.data
+    }
+
     fn sample_rate(&self) -> u32 {
         self.sample_rate
-    }
-}
-
-/// Blanket forwarding so `&C` is an [`AudioClip`] wherever `C` is.
-impl<C: AudioClip + ?Sized> AudioClip for &C {
-    type Value = C::Value;
-
-    fn data(&self) -> &[Self::Value] {
-        (**self).data()
-    }
-
-    fn sample_rate(&self) -> u32 {
-        (**self).sample_rate()
     }
 }
 
@@ -77,11 +74,9 @@ mod tests {
     }
 
     #[test]
-    fn reference_forwards() {
-        let clip = Clip::new(vec![1i16, 2, 3], 8_000);
-        fn rate(c: impl AudioClip) -> u32 {
-            c.sample_rate()
-        }
-        assert_eq!(rate(&clip), 8_000);
+    fn data_mut_writes_through() {
+        let mut clip = Clip::new(vec![1i16, 2, 3], 8_000);
+        clip.data_mut().fill(0);
+        assert_eq!(clip.data(), &[0, 0, 0]);
     }
 }
