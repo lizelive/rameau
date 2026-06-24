@@ -385,13 +385,6 @@ name = "rameau_playback"
 version = "0.1.0"
 
 [[package]]
-name = "rameau_smf"
-version = "0.1.0"
-dependencies = [
- "rameau_midi",
-]
-
-[[package]]
 name = "rameau_soundfont"
 version = "0.1.0"
 dependencies = [

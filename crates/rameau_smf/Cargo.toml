@@ -1,7 +1,0 @@
-[package]
-name = "rameau_smf"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-rameau_midi = { version = "0.1.0", path = "../rameau_midi" }

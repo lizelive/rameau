@@ -9,7 +9,7 @@ pub type Key = u8;
 
 pub type ControlFunction = U7;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum MidiEvent {
     /// Send a noteon message.
     NoteOn {
