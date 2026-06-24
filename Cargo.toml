@@ -2,8 +2,14 @@
 name = "rameau"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
+rameau_kira = { path = "crates/rameau_kira", version = "0.1.0" }
+rameau_midi = { path = "crates/rameau_midi", version = "0.1.0" }
+rameau_playback = { path = "crates/rameau_playback", version = "0.1.0" }
+rameau_soundfont = { path = "crates/rameau_soundfont", version = "0.1.0" }
+rameau_synthesizer = { path = "crates/rameau_synthesizer", version = "0.1.0" }
 
 [workspace]
 members = ["crates/*"]

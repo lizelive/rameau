@@ -699,6 +699,13 @@ dependencies = [
 [[package]]
 name = "rameau"
 version = "0.1.0"
+dependencies = [
+ "rameau_kira",
+ "rameau_midi",
+ "rameau_playback",
+ "rameau_soundfont",
+ "rameau_synthesizer",
+]
 
 [[package]]
 name = "rameau_chords"
