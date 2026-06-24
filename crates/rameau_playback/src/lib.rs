@@ -9,6 +9,14 @@
 //! closure on its own audio thread whenever it needs more samples, passing an
 //! interleaved buffer of `f32` to fill. The closure must be `Send` and
 //! `'static` because it typically runs on a thread owned by the backend.
+//!
+//! On top of this device layer, [`AudioPlayback`] is a higher-level *sample
+//! engine* abstraction (start/update/stop/render of voices); see its module
+//! documentation.
+
+mod engine;
+
+pub use engine::{AudioPlayback, LoopRegion, PlaybackError, Timestamp, Vec3, VoiceParams};
 
 /// How an output stream should be configured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

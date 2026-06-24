@@ -12,6 +12,7 @@ use std::io::{Cursor, Read, Seek};
 use std::path::Path;
 
 use rameau_clip::Clip;
+use rameau_playback::{AudioPlayback, PlaybackError, Timestamp, VoiceParams};
 use riff::{Chunk, ChunkId};
 
 use crate::generator::GeneratorType;
@@ -29,6 +30,8 @@ pub enum Error {
     Format(String),
     /// An Ogg/Vorbis sample (in an `.sf3` file) could not be decoded.
     Vorbis(lewton::VorbisError),
+    /// The playback backend failed to build a clip from sample audio.
+    Backend(PlaybackError),
 }
 
 impl std::fmt::Display for Error {
@@ -37,6 +40,7 @@ impl std::fmt::Display for Error {
             Error::Io(e) => write!(f, "io error: {e}"),
             Error::Format(m) => write!(f, "malformed soundfont: {m}"),
             Error::Vorbis(e) => write!(f, "vorbis decode error: {e}"),
+            Error::Backend(e) => write!(f, "backend error building clip: {e}"),
         }
     }
 }
@@ -46,8 +50,15 @@ impl std::error::Error for Error {
         match self {
             Error::Io(e) => Some(e),
             Error::Vorbis(e) => Some(e),
+            Error::Backend(e) => Some(e),
             Error::Format(_) => None,
         }
+    }
+}
+
+impl From<PlaybackError> for Error {
+    fn from(e: PlaybackError) -> Self {
+        Error::Backend(e)
     }
 }
 
@@ -68,21 +79,50 @@ fn format(msg: impl Into<String>) -> Error {
 }
 
 impl SoundFont {
-    /// Loads a SoundFont from a `.sf2`/`.sf3` file on disk.
+    /// Loads a SoundFont from a `.sf2`/`.sf3` file on disk, decoding samples to
+    /// PCM ([`Clip<i16>`]).
     pub fn load_file(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let bytes = std::fs::read(path)?;
-        Self::from_bytes(&bytes)
+        Self::load_file_with(path, &mut PcmFactory)
     }
 
-    /// Loads a SoundFont from a seekable reader.
-    pub fn load(mut reader: impl Read + Seek) -> Result<Self, Error> {
+    /// Loads a SoundFont from a seekable reader, decoding samples to PCM.
+    pub fn load(reader: impl Read + Seek) -> Result<Self, Error> {
+        Self::load_with(reader, &mut PcmFactory)
+    }
+
+    /// Loads a SoundFont from an in-memory `.sf2`/`.sf3` image, decoding samples
+    /// to PCM.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_bytes_with(bytes, &mut PcmFactory)
+    }
+
+    /// Loads a SoundFont from a file, building each sample's clip with `backend`.
+    ///
+    /// The resulting [`SoundFont<P::Clip>`] stores backend-native clips, ready
+    /// for the synthesizer to play through that same backend.
+    pub fn load_file_with<P: AudioPlayback>(
+        path: impl AsRef<Path>,
+        backend: &mut P,
+    ) -> Result<SoundFont<P::Clip>, Error> {
+        let bytes = std::fs::read(path)?;
+        SoundFont::from_bytes_with(&bytes, backend)
+    }
+
+    /// Loads a SoundFont from a reader, building each sample's clip with `backend`.
+    pub fn load_with<P: AudioPlayback>(
+        mut reader: impl Read + Seek,
+        backend: &mut P,
+    ) -> Result<SoundFont<P::Clip>, Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes)?;
-        Self::from_bytes(&bytes)
+        SoundFont::from_bytes_with(&bytes, backend)
     }
 
-    /// Loads a SoundFont from an in-memory `.sf2`/`.sf3` image.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+    /// Loads a SoundFont from bytes, building each sample's clip with `backend`.
+    pub fn from_bytes_with<P: AudioPlayback>(
+        bytes: &[u8],
+        backend: &mut P,
+    ) -> Result<SoundFont<P::Clip>, Error> {
         let mut cursor = Cursor::new(bytes);
 
         let riff = Chunk::read(&mut cursor, 0)?;
@@ -118,7 +158,7 @@ impl SoundFont {
         let smpl = leaf(&sdta, &mut cursor, b"smpl")?.unwrap_or_default();
         let hydra = Hydra::read(&pdta, &mut cursor)?;
 
-        let samples = build_samples(&hydra.shdr, &smpl)?;
+        let samples = build_samples(&hydra.shdr, &smpl, backend)?;
         let instruments = build_instruments(&hydra)?;
         let presets = build_presets(&hydra)?;
 
@@ -128,6 +168,54 @@ impl SoundFont {
             instruments,
             samples,
         })
+    }
+}
+
+/// The default loading "backend": it does no playback, only turns sample audio
+/// into [`Clip<i16>`] PCM. This is what [`SoundFont::load_file`] and friends use.
+struct PcmFactory;
+
+impl AudioPlayback for PcmFactory {
+    type Clip = Clip<i16>;
+    type Playback = ();
+
+    fn clip_from_pcm(&mut self, samples: &[i16], sample_rate: u32) -> Result<Clip<i16>, PlaybackError> {
+        Ok(Clip::new(samples.to_vec(), sample_rate))
+    }
+
+    fn clip_from_vorbis(&mut self, _ogg: &[u8]) -> Result<Clip<i16>, PlaybackError> {
+        // Signal "decode it yourself"; `build_samples` falls back to lewton.
+        Err(PlaybackError::Unsupported("PcmFactory::clip_from_vorbis"))
+    }
+
+    fn start(
+        &mut self,
+        _when: Timestamp,
+        _clip: &Clip<i16>,
+        _params: VoiceParams,
+        _loop_region: Option<rameau_playback::LoopRegion>,
+    ) -> Result<(), PlaybackError> {
+        Err(PlaybackError::Unsupported("PcmFactory::start"))
+    }
+
+    fn update(
+        &mut self,
+        _when: Timestamp,
+        _pb: &mut (),
+        _params: VoiceParams,
+    ) -> Result<(), PlaybackError> {
+        Err(PlaybackError::Unsupported("PcmFactory::update"))
+    }
+
+    fn stop(&mut self, _when: Timestamp, _pb: &mut ()) -> Result<(), PlaybackError> {
+        Err(PlaybackError::Unsupported("PcmFactory::stop"))
+    }
+
+    fn render(
+        &mut self,
+        _clip: &mut dyn rameau_clip::AudioClip<Value = f32>,
+    ) -> Result<(), PlaybackError> {
+        Err(PlaybackError::Unsupported("PcmFactory::render"))
     }
 }
 
@@ -481,34 +569,54 @@ fn build_instruments(hydra: &Hydra) -> Result<Vec<Instrument>, Error> {
 /// Bit in `sfSampleType` that marks an Ogg/Vorbis-compressed sample (`.sf3`).
 const SAMPLE_TYPE_COMPRESSED: u16 = 0x10;
 
-fn build_samples(headers: &[SampleHeader], smpl: &[u8]) -> Result<Vec<Sample>, Error> {
+fn build_samples<P: AudioPlayback>(
+    headers: &[SampleHeader],
+    smpl: &[u8],
+    backend: &mut P,
+) -> Result<Vec<Sample<P::Clip>>, Error> {
     // The final shdr record is the terminal "EOS" sentinel.
     let count = headers.len().saturating_sub(1);
     let mut samples = Vec::with_capacity(count);
     for header in &headers[..count] {
-        let (data, loop_start, loop_end) = if header.sample_type & SAMPLE_TYPE_COMPRESSED != 0 {
-            // `.sf3`: an independent Ogg/Vorbis stream delimited by byte
-            // offsets; its loop points are already relative to the sample.
-            let blob = slice(smpl, header.start as usize, header.end as usize)?;
-            let data = decode_vorbis(blob)?;
-            (data, header.start_loop, header.end_loop)
-        } else {
-            // `.sf2`: raw i16 PCM addressed by sample frame. A looping sample's
-            // loop may extend past `end`, so include up to the loop end.
-            let begin = header.start as usize * 2;
-            let finish = header.end.max(header.end_loop) as usize * 2;
-            let bytes = slice(smpl, begin, finish)?;
-            let data = bytes.chunks_exact(2).map(|c| le_i16(c, 0)).collect();
-            (
-                data,
-                header.start_loop.saturating_sub(header.start),
-                header.end_loop.saturating_sub(header.start),
-            )
-        };
+        let (clip, frame_count, loop_start, loop_end) =
+            if header.sample_type & SAMPLE_TYPE_COMPRESSED != 0 {
+                // `.sf3`: an independent Ogg/Vorbis stream delimited by byte
+                // offsets; its loop points are already relative to the sample.
+                let blob = slice(smpl, header.start as usize, header.end as usize)?;
+                let (clip, frame_count) = match backend.clip_from_vorbis(blob) {
+                    Ok(clip) => (clip, 0), // length opaque; backend plays to end
+                    Err(PlaybackError::Unsupported(_)) => {
+                        // Backend can't decode Vorbis: decode here, hand it PCM.
+                        let pcm = decode_vorbis(blob)?;
+                        let n = pcm.len() as u32;
+                        (backend.clip_from_pcm(&pcm, header.sample_rate)?, n)
+                    }
+                    Err(e) => return Err(Error::Backend(e)),
+                };
+                (clip, frame_count, header.start_loop, header.end_loop)
+            } else {
+                // `.sf2`: raw i16 PCM addressed by sample frame. A looping
+                // sample's loop may extend past `end`, so include up to the loop
+                // end.
+                let begin = header.start as usize * 2;
+                let finish = header.end.max(header.end_loop) as usize * 2;
+                let bytes = slice(smpl, begin, finish)?;
+                let pcm: Vec<i16> = bytes.chunks_exact(2).map(|c| le_i16(c, 0)).collect();
+                let frame_count = pcm.len() as u32;
+                let clip = backend.clip_from_pcm(&pcm, header.sample_rate)?;
+                (
+                    clip,
+                    frame_count,
+                    header.start_loop.saturating_sub(header.start),
+                    header.end_loop.saturating_sub(header.start),
+                )
+            };
 
         samples.push(Sample {
             name: header.name.clone(),
-            clip: Clip::new(data, header.sample_rate),
+            clip,
+            sample_rate: header.sample_rate,
+            frame_count,
             loop_start,
             loop_end,
             original_key: header.original_key,

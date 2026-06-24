@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 lewton = "0.10.2"
 rameau_clip = { path = "../rameau_clip" }
+rameau_playback = { path = "../rameau_playback" }
 riff = "2.0.0"
 serde = { version = "1", optional = true, features = ["derive"] }
 

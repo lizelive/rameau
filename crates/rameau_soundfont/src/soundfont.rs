@@ -18,17 +18,22 @@ use serde::{Deserialize, Serialize};
 /// This is the abstract representation that the rest of the crate works with.
 /// It deliberately carries no information about the on-disk container, so two
 /// banks that sound identical compare equal regardless of how they were loaded.
+///
+/// It is generic over the sample *clip* type `C`: by default samples hold
+/// decoded 16-bit PCM ([`Clip<i16>`]), but a playback backend can store its own
+/// native clip type (e.g. an engine's pre-loaded sound) so that the synthesizer
+/// never has to touch raw audio.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SoundFont {
+pub struct SoundFont<C = Clip<i16>> {
     /// Bank-level metadata (the `INFO` list).
     pub info: Info,
     /// Presets, addressable by MIDI bank/program (the `phdr` hydra).
     pub presets: Vec<Preset>,
     /// Instruments referenced by preset zones (the `inst` hydra).
     pub instruments: Vec<Instrument>,
-    /// Samples referenced by instrument zones, with audio decoded to PCM.
-    pub samples: Vec<Sample>,
+    /// Samples referenced by instrument zones, with audio as clips of type `C`.
+    pub samples: Vec<Sample<C>>,
 }
 
 /// A `major.minor` version number, as stored in the `ifil`/`iver` records.
@@ -209,16 +214,25 @@ impl From<u16> for SampleType {
 /// PCM and its sample rate are held in [`clip`](Sample::clip); all loop offsets
 /// are expressed in sample frames relative to that clip's data, so nothing here
 /// depends on the global sample pool of the original file.
+///
+/// The audio itself lives in [`clip`](Sample::clip), of the backend's clip type
+/// `C`. Because `C` may be opaque, the playback-relevant metadata a driver needs
+/// — [`sample_rate`](Sample::sample_rate) and [`frame_count`](Sample::frame_count)
+/// — is kept as explicit fields rather than read back out of the clip.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Sample {
+pub struct Sample<C = Clip<i16>> {
     /// Sample name.
     pub name: String,
-    /// Decoded 16-bit mono PCM and its sample rate.
-    pub clip: Clip<i16>,
-    /// Loop start, in sample frames into [`clip`](Sample::clip)'s data.
+    /// The sample audio, as a clip of type `C`.
+    pub clip: C,
+    /// Recorded sample rate in Hz.
+    pub sample_rate: u32,
+    /// Length of the sample, in frames.
+    pub frame_count: u32,
+    /// Loop start, in sample frames into the clip's data.
     pub loop_start: u32,
-    /// Loop end, in sample frames into [`clip`](Sample::clip)'s data.
+    /// Loop end, in sample frames into the clip's data.
     pub loop_end: u32,
     /// MIDI key number of the recorded pitch (`byOriginalKey`).
     pub original_key: u8,
@@ -230,18 +244,18 @@ pub struct Sample {
     pub kind: SampleType,
 }
 
-impl AudioClip for Sample {
-    type Value = i16;
+impl<C: AudioClip> AudioClip for Sample<C> {
+    type Value = C::Value;
 
-    fn data(&self) -> &[i16] {
+    fn data(&self) -> &[C::Value] {
         self.clip.data()
     }
 
-    fn data_mut(&mut self) -> &mut [i16] {
+    fn data_mut(&mut self) -> &mut [C::Value] {
         self.clip.data_mut()
     }
 
     fn sample_rate(&self) -> u32 {
-        self.clip.sample_rate()
+        self.sample_rate
     }
 }

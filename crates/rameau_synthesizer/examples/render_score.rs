@@ -1,9 +1,9 @@
 //! Offline rendering: bake a short MIDI score to a WAV file.
 //!
-//! The same [`Synthesizer::render`] entry point used for real-time playback
-//! also renders offline — here the whole piece is one big block, so every event
-//! timestamp is just its absolute sample position. This is the simplest way to
-//! sanity-check a SoundFont and the synthesizer end to end.
+//! The [`rameau_software::Software`] backend is a pure mixer with no output
+//! device, which makes it the one that can render *offline*: every note is
+//! scheduled at its absolute [`Timestamp::AtSeconds`], then the whole piece is
+//! rendered in a single [`Synthesizer::render`] call.
 //!
 //! ```text
 //! cargo run -p rameau_synthesizer --example render_score -- assets/FluidR3Mono_GM.sf3 out.wav
@@ -13,6 +13,8 @@ use std::path::PathBuf;
 
 use rameau_clip::Clip;
 use rameau_midi::event::MidiEvent;
+use rameau_playback::Timestamp;
+use rameau_software::Software;
 use rameau_soundfont::SoundFont;
 use rameau_synthesizer::Synthesizer;
 
@@ -23,7 +25,8 @@ fn main() {
     let sf_path = args.next().unwrap_or_else(default_soundfont_path);
     let out_path = args.next().unwrap_or_else(|| "score.wav".to_string());
 
-    let soundfont = match SoundFont::load_file(&sf_path) {
+    let mut backend = Software::new(SAMPLE_RATE);
+    let soundfont = match SoundFont::load_file_with(&sf_path, &mut backend) {
         Ok(sf) => sf,
         Err(e) => {
             eprintln!("failed to load SoundFont {sf_path:?}: {e}");
@@ -37,18 +40,24 @@ fn main() {
         soundfont.samples.len()
     );
 
-    let mut synth = Synthesizer::new(soundfont, SAMPLE_RATE);
+    let mut synth = Synthesizer::new(soundfont, backend, SAMPLE_RATE);
 
+    // Score events are (absolute sample position, event); schedule each in time.
     let events = score();
-    // Total length: the last event plus two seconds of tail for releases.
     let last = events.iter().map(|&(t, _)| t).max().unwrap_or(0);
-    let frames = last as usize + 2 * SAMPLE_RATE as usize;
+    let frames = last as usize + 2 * SAMPLE_RATE as usize; // 2s tail for releases.
+    for (pos, event) in &events {
+        let when = Timestamp::AtSeconds(*pos as f64 / SAMPLE_RATE as f64);
+        synth
+            .handle(when, *event)
+            .expect("software backend is infallible");
+    }
 
+    // One big offline block: the software backend honours each note's schedule.
     let mut stereo = Clip::new(vec![0.0f32; frames * 2], SAMPLE_RATE);
-    synth.render(events, &mut stereo);
+    synth.render(&mut stereo).expect("software render");
 
-    // Mix the interleaved stereo render down to the mono i16 the WAV writer
-    // expects, with simple peak normalisation and clipping protection.
+    // Mix the interleaved stereo render down to mono i16 with peak normalisation.
     let peak = stereo
         .data
         .iter()
@@ -82,7 +91,6 @@ fn score() -> Vec<(u64, MidiEvent)> {
     let beat = SAMPLE_RATE as u64 / 2; // 120 BPM
     let mut events = Vec::new();
 
-    // Program 0 (acoustic grand piano) on channel 0.
     events.push((
         0,
         MidiEvent::ProgramChange {
@@ -91,7 +99,6 @@ fn score() -> Vec<(u64, MidiEvent)> {
         },
     ));
 
-    // Ascending C major scale, one note per eighth.
     let scale = [60, 62, 64, 65, 67, 69, 71, 72];
     for (i, &key) in scale.iter().enumerate() {
         let on = (i as u64 + 1) * (beat / 2);
@@ -103,14 +110,16 @@ fn score() -> Vec<(u64, MidiEvent)> {
                 vel: 100,
             },
         ));
-        events.push((on + beat / 2, MidiEvent::NoteOff {
+        events.push((
+            on + beat / 2,
+            MidiEvent::NoteOff {
                 channel: 0,
                 key,
                 vel: 0,
-            }));
+            },
+        ));
     }
 
-    // A held C major chord to finish.
     let chord_on = (scale.len() as u64 + 1) * (beat / 2);
     for &key in &[60, 64, 67, 72] {
         events.push((
@@ -121,11 +130,14 @@ fn score() -> Vec<(u64, MidiEvent)> {
                 vel: 110,
             },
         ));
-        events.push((chord_on + beat * 2, MidiEvent::NoteOff {
+        events.push((
+            chord_on + beat * 2,
+            MidiEvent::NoteOff {
                 channel: 0,
                 key,
                 vel: 0,
-            }));
+            },
+        ));
     }
 
     events.sort_by_key(|&(t, _)| t);

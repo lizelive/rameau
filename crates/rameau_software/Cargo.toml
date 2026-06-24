@@ -1,7 +1,8 @@
 [package]
-name = "rameau_playback"
+name = "rameau_software"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 rameau_clip = { path = "../rameau_clip" }
+rameau_playback = { path = "../rameau_playback" }

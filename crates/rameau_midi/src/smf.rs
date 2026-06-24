@@ -161,6 +161,59 @@ pub enum MetaEvent {
 }
 
 impl Smf {
+    /// Flattens every track into one timeline of `(seconds, MidiEvent)` pairs,
+    /// sorted by time.
+    ///
+    /// All tracks are merged on a shared tick clock and converted to wall-clock
+    /// seconds by walking the tempo map (`Set Tempo` meta events); the initial
+    /// tempo is 120 BPM until the first such event. SMPTE time divisions use a
+    /// fixed tick rate. Meta and system-exclusive events are dropped — only
+    /// playable [`MidiEvent`]s remain. This is the shape a synthesizer schedules.
+    pub fn timed_events(&self) -> Vec<(f64, MidiEvent)> {
+        // Gather every event from every track tagged with its absolute tick.
+        let mut events: Vec<(u64, &TrackEventKind)> = Vec::new();
+        for track in &self.tracks {
+            let mut tick = 0u64;
+            for ev in &track.events {
+                tick += u64::from(ev.delta);
+                events.push((tick, &ev.kind));
+            }
+        }
+        // A stable sort by tick keeps each track's relative order at equal ticks.
+        events.sort_by_key(|&(tick, _)| tick);
+
+        // Seconds-per-tick depends on the division and (for metrical) tempo.
+        let ticks_per_quarter = match self.division {
+            Division::TicksPerQuarter(tpq) => tpq.max(1) as f64,
+            Division::Smpte {
+                fps,
+                ticks_per_frame,
+            } => {
+                // SMPTE: a fixed tick rate, independent of tempo.
+                let tick_hz = fps.max(1) as f64 * ticks_per_frame.max(1) as f64;
+                return seconds_from_fixed_rate(&events, 1.0 / tick_hz);
+            }
+        };
+
+        let mut out = Vec::new();
+        let mut last_tick = 0u64;
+        let mut seconds = 0.0f64;
+        // Default 120 BPM = 500_000 microseconds per quarter note.
+        let mut sec_per_tick = 0.5 / ticks_per_quarter;
+        for (tick, kind) in events {
+            seconds += (tick - last_tick) as f64 * sec_per_tick;
+            last_tick = tick;
+            match kind {
+                TrackEventKind::Midi(m) => out.push((seconds, *m)),
+                TrackEventKind::Meta(MetaEvent::Tempo(us_per_quarter)) => {
+                    sec_per_tick = (*us_per_quarter as f64 / 1_000_000.0) / ticks_per_quarter;
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
     /// Parse the bytes of a Standard MIDI File.
     pub fn parse(bytes: &[u8]) -> Result<Smf, MidiError> {
         let mut r = Reader::new(bytes);
@@ -199,6 +252,21 @@ impl Smf {
             tracks,
         })
     }
+}
+
+/// Converts tick-tagged events to `(seconds, MidiEvent)` at a fixed tick rate
+/// (for SMPTE divisions, where tempo does not affect timing).
+fn seconds_from_fixed_rate(
+    events: &[(u64, &TrackEventKind)],
+    sec_per_tick: f64,
+) -> Vec<(f64, MidiEvent)> {
+    events
+        .iter()
+        .filter_map(|&(tick, kind)| match kind {
+            TrackEventKind::Midi(m) => Some((tick as f64 * sec_per_tick, *m)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Parse one MTrk chunk body into a [`Track`].

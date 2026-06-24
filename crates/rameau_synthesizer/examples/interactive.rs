@@ -1,16 +1,12 @@
 //! Real-time interactive scoring + SoundFont synthesis.
 //!
-//! This demo wires [`Synthesizer`] to a live audio device through
-//! [`rameau_tinyaudio`] and shows the two halves of "interactive scoring":
-//!
-//! * **A score that plays itself.** A looping I-V-vi-IV chord progression with a
-//!   bass line is scheduled on a sample-accurate timeline. The audio callback
-//!   owns the clock: each block it gathers the score events that fall inside the
-//!   block and hands them to [`Synthesizer::render`] with block-relative
-//!   timestamps, so timing never drifts with buffer size.
-//!
-//! * **Live playing on top.** You type notes at the terminal and they are mixed
-//!   in immediately, transposed and routed to whatever instrument is selected.
+//! This demo drives a [`Synthesizer`] over the [`rameau_software::Software`]
+//! backend through a live [`rameau_tinyaudio`] device. The audio callback owns
+//! the clock: each block it gathers the events that fall inside the block —
+//! backing score, scheduled note-offs and live keyboard input — schedules them
+//! on the synth at sample-accurate [`Timestamp::AtSeconds`], and renders the
+//! backend into the output buffer. Because the software backend's clock advances
+//! in lockstep with the callback, timing never drifts with buffer size.
 //!
 //! Run it with an optional SoundFont path (a General MIDI bank works best):
 //!
@@ -33,10 +29,12 @@ use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 
+use rameau_clip::Clip;
 use rameau_midi::event::MidiEvent;
-use rameau_playback::{Playback, PlaybackConfig};
+use rameau_playback::{AudioPlayback, Playback, PlaybackConfig, Timestamp};
+use rameau_software::Software;
 use rameau_soundfont::SoundFont;
-use rameau_synthesizer::{Clip, Synthesizer};
+use rameau_synthesizer::Synthesizer;
 use rameau_tinyaudio::TinyAudio;
 
 /// A command sent from the keyboard thread to the audio thread.
@@ -66,14 +64,13 @@ fn main() {
         frames_per_buffer: 256,
     };
 
-    let soundfont = match load_soundfont() {
+    let mut backend = Software::new(config.sample_rate);
+    let soundfont = match load_soundfont(&mut backend) {
         Ok(sf) => sf,
         Err(e) => {
             eprintln!("could not load a SoundFont: {e}");
             eprintln!("pass one explicitly, e.g.:");
-            eprintln!(
-                "  cargo run -p rameau_synthesizer --example interactive -- path/to/bank.sf2"
-            );
+            eprintln!("  cargo run -p rameau_synthesizer --example interactive -- path/to/bank.sf2");
             std::process::exit(1);
         }
     };
@@ -84,41 +81,39 @@ fn main() {
         soundfont.samples.len()
     );
 
-    let mut synth = Synthesizer::new(soundfont, config.sample_rate);
-    // Give the live channel a bright lead so it stands out over the score.
-    let mut bootstrap = vec![program_change(LIVE_CHANNEL, 80)]; // Lead 1 (square)
-    bootstrap.push(program_change(SCORE_CHANNEL, 0)); // Acoustic grand piano
-
     let sample_rate = config.sample_rate;
+    let mut synth = Synthesizer::new(soundfont, backend, sample_rate);
+
     let score = build_score(sample_rate);
     let loop_samples = score_loop_samples(sample_rate);
 
     let (tx, rx) = mpsc::channel::<Command>();
 
-    // Everything below is moved into the real-time audio callback.
+    // State moved into the real-time audio callback.
     let mut scratch = Clip::new(vec![0.0f32; config.buffer_len()], sample_rate);
-    let mut clock: u64 = 0; // absolute sample time
-    let mut score_idx = 0usize; // next score event
-    let mut loop_base: u64 = 0; // sample time of the current score-loop start
-    let mut pending: Vec<(u64, MidiEvent)> = Vec::new(); // future note-offs
+    let mut clock: u64 = 0; // absolute sample time (matches the backend clock)
+    let mut score_idx = 0usize;
+    let mut loop_base: u64 = 0;
+    let mut pending: Vec<(u64, MidiEvent)> = Vec::new(); // future note-offs (abs)
     let mut transpose: i32 = 0;
     let mut score_on = true;
 
-    // Apply the bootstrap program changes on the very first block.
-    let mut bootstrap = std::mem::take(&mut bootstrap);
+    // Give the live channel a bright lead and the score a piano on block one.
+    let mut bootstrap = vec![
+        program_change(LIVE_CHANNEL, 80), // Lead 1 (square)
+        program_change(SCORE_CHANNEL, 0), // Acoustic grand piano
+    ];
 
     let render = move |buf: &mut [f32]| {
         let frames = (buf.len() / 2) as u64;
         let block_start = clock;
         let block_end = clock + frames;
 
+        // (abs_frame, event) for everything happening this block.
         let mut events: Vec<(u64, MidiEvent)> = Vec::new();
-
         for ev in bootstrap.drain(..) {
-            events.push((0, ev));
+            events.push((block_start, ev));
         }
-
-        // (a) Backing score, looped on the sample timeline.
         if score_on {
             collect_score(
                 &score,
@@ -131,18 +126,14 @@ fn main() {
                 &mut events,
             );
         }
-
-        // (b) Note-offs scheduled by earlier live notes.
         pending.retain(|&(t, ev)| {
             if t < block_end {
-                events.push((t.saturating_sub(block_start), ev));
+                events.push((t.max(block_start), ev));
                 false
             } else {
                 true
             }
         });
-
-        // (c) Live commands from the keyboard thread.
         drain_commands(
             &rx,
             block_start,
@@ -154,9 +145,13 @@ fn main() {
         );
 
         events.sort_by_key(|&(t, _)| t);
+        for (abs, ev) in events {
+            let when = Timestamp::AtSeconds(abs as f64 / sample_rate as f64);
+            let _ = synth.handle(when, ev);
+        }
 
         scratch.data.resize(buf.len(), 0.0);
-        synth.render(events, &mut scratch);
+        let _ = synth.render(&mut scratch);
         buf.copy_from_slice(&scratch.data);
 
         clock = block_end;
@@ -236,7 +231,6 @@ fn run_keyboard(tx: mpsc::Sender<Command>) {
 
 /// Maps a typing-keyboard character to a MIDI key (two rows = two octaves).
 fn key_for_char(ch: char) -> Option<u8> {
-    // Home row: C major scale from C4 (60). Top row: the octave above.
     const LOWER: &[(char, u8)] = &[
         ('a', 60),
         ('s', 62),
@@ -280,7 +274,7 @@ fn drain_commands(
             Command::Note { key, vel, gate } => {
                 let key = (key as i32 + *transpose).clamp(0, 127) as u8;
                 events.push((
-                    0,
+                    block_start,
                     MidiEvent::NoteOn {
                         channel: LIVE_CHANNEL,
                         key,
@@ -297,12 +291,12 @@ fn drain_commands(
                     },
                 ));
             }
-            Command::Program(p) => events.push((0, program_change(LIVE_CHANNEL, p))),
+            Command::Program(p) => events.push((block_start, program_change(LIVE_CHANNEL, p))),
             Command::Transpose(d) => *transpose += d as i32,
             Command::ToggleScore => *score_on = !*score_on,
             Command::Panic => {
                 for ch in 0..16 {
-                    events.push((0, MidiEvent::AllNotesOff { channel: ch }));
+                    events.push((block_start, MidiEvent::AllNotesOff { channel: ch }));
                 }
             }
         }
@@ -324,7 +318,6 @@ fn collect_score(
 ) {
     loop {
         if *score_idx >= score.len() {
-            // Wrap to the next loop iteration.
             *score_idx = 0;
             *loop_base += loop_samples;
         }
@@ -334,7 +327,7 @@ fn collect_score(
             break;
         }
         if abs >= block_start {
-            events.push((abs - block_start, transpose_event(ev, transpose)));
+            events.push((abs, transpose_event(ev, transpose)));
         }
         *score_idx += 1;
     }
@@ -371,14 +364,10 @@ fn score_loop_samples(sample_rate: u32) -> u64 {
 }
 
 /// Builds a looping I-V-vi-IV progression in C with a root bass line.
-///
-/// Returns `(sample_offset, event)` pairs sorted by time, relative to the start
-/// of the loop.
 fn build_score(sample_rate: u32) -> Vec<(u64, MidiEvent)> {
-    let beat = (60.0 / 100.0 * sample_rate as f64) as u64; // one beat in samples
+    let beat = (60.0 / 100.0 * sample_rate as f64) as u64;
     let bar = beat * 4;
 
-    // Chord roots (C major: C, G, A minor, F) and their triads.
     let chords: [[u8; 3]; 4] = [
         [60, 64, 67], // C  (I)
         [55, 62, 67], // G  (V)
@@ -390,14 +379,10 @@ fn build_score(sample_rate: u32) -> Vec<(u64, MidiEvent)> {
     let mut score: Vec<(u64, MidiEvent)> = Vec::new();
     for (i, (chord, &root)) in chords.iter().zip(bass.iter()).enumerate() {
         let t0 = i as u64 * bar;
-
-        // Pad chord: held for almost the whole bar.
         for &key in chord {
             score.push((t0, note_on(SCORE_CHANNEL, key, 70)));
             score.push((t0 + bar - beat / 4, note_off(SCORE_CHANNEL, key)));
         }
-
-        // Bass: a note on each beat.
         for b in 0..4 {
             let t = t0 + b * beat;
             score.push((t, note_on(LIVE_CHANNEL + 1, root, 90)));
@@ -421,13 +406,15 @@ fn note_off(channel: u8, key: u8) -> MidiEvent {
     }
 }
 
-/// Tries the CLI argument, then the bundled banks under `assets/`.
-fn load_soundfont() -> Result<SoundFont, rameau_soundfont::Error> {
+/// Tries the bundled banks under `assets/` (and a CLI argument), loading each
+/// sample into the software backend's clip type.
+fn load_soundfont(
+    backend: &mut Software,
+) -> Result<SoundFont<<Software as AudioPlayback>::Clip>, rameau_soundfont::Error> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(arg) = std::env::args().nth(1) {
         candidates.push(PathBuf::from(arg));
     }
-    // `assets/` sits at the workspace root, two levels above this crate.
     let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets");
     candidates.push(assets.join("FluidR3Mono_GM.sf3"));
     candidates.push(assets.join("Unison.SF2"));
@@ -438,7 +425,7 @@ fn load_soundfont() -> Result<SoundFont, rameau_soundfont::Error> {
         if !path.exists() {
             continue;
         }
-        match SoundFont::load_file(&path) {
+        match SoundFont::load_file_with(&path, backend) {
             Ok(sf) => return Ok(sf),
             Err(e) => last_err = Some(e),
         }
