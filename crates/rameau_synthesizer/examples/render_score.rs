@@ -103,7 +103,11 @@ fn score() -> Vec<(u64, MidiEvent)> {
                 vel: 100,
             },
         ));
-        events.push((on + beat / 2, MidiEvent::NoteOff { channel: 0, key }));
+        events.push((on + beat / 2, MidiEvent::NoteOff {
+                channel: 0,
+                key,
+                vel: 0,
+            }));
     }
 
     // A held C major chord to finish.
@@ -117,7 +121,11 @@ fn score() -> Vec<(u64, MidiEvent)> {
                 vel: 110,
             },
         ));
-        events.push((chord_on + beat * 2, MidiEvent::NoteOff { channel: 0, key }));
+        events.push((chord_on + beat * 2, MidiEvent::NoteOff {
+                channel: 0,
+                key,
+                vel: 0,
+            }));
     }
 
     events.sort_by_key(|&(t, _)| t);

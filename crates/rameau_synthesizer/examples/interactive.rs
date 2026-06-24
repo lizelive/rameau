@@ -293,6 +293,7 @@ fn drain_commands(
                     MidiEvent::NoteOff {
                         channel: LIVE_CHANNEL,
                         key,
+                        vel: 0,
                     },
                 ));
             }
@@ -347,9 +348,10 @@ fn transpose_event(ev: MidiEvent, semitones: i32) -> MidiEvent {
             key: (key as i32 + semitones).clamp(0, 127) as u8,
             vel,
         },
-        MidiEvent::NoteOff { channel, key } => MidiEvent::NoteOff {
+        MidiEvent::NoteOff { channel, key, vel } => MidiEvent::NoteOff {
             channel,
             key: (key as i32 + semitones).clamp(0, 127) as u8,
+            vel,
         },
         other => other,
     }
@@ -412,7 +414,11 @@ fn note_on(channel: u8, key: u8, vel: u8) -> MidiEvent {
 }
 
 fn note_off(channel: u8, key: u8) -> MidiEvent {
-    MidiEvent::NoteOff { channel, key }
+    MidiEvent::NoteOff {
+        channel,
+        key,
+        vel: 0,
+    }
 }
 
 /// Tries the CLI argument, then the bundled banks under `assets/`.

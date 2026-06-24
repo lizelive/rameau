@@ -21,6 +21,8 @@ pub enum MidiEvent {
     NoteOff {
         channel: Channel,
         key: Key,
+        /// Release velocity (`0` when the source did not specify one).
+        vel: U7,
     },
     /// Send a control change message.
     ControlChange {

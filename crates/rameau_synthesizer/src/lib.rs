@@ -215,7 +215,7 @@ impl Synthesizer {
         match event {
             MidiEvent::NoteOn { channel, key, vel } if vel > 0 => self.note_on(channel, key, vel),
             // A note-on with zero velocity is a note-off.
-            MidiEvent::NoteOn { channel, key, .. } | MidiEvent::NoteOff { channel, key } => {
+            MidiEvent::NoteOn { channel, key, .. } | MidiEvent::NoteOff { channel, key, .. } => {
                 self.note_off(channel, key)
             }
             MidiEvent::ControlChange {
@@ -655,6 +655,7 @@ mod tests {
                 MidiEvent::NoteOff {
                     channel: 0,
                     key: 60,
+                    vel: 0,
                 },
             )],
             &mut block,

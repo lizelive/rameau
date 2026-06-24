@@ -258,8 +258,12 @@ fn parse_channel(
 
     let event = match status & 0xf0 {
         0x80 => {
-            let _vel = r.u8()?; // off-velocity is not represented
-            MidiEvent::NoteOff { channel, key: d1 }
+            let vel = r.u8()?;
+            MidiEvent::NoteOff {
+                channel,
+                key: d1,
+                vel,
+            }
         }
         0x90 => {
             let vel = r.u8()?;
