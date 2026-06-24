@@ -1,8 +1,11 @@
 [package]
 name = "rameau_tinyaudio"
-version = "0.1.0"
-edition = "2024"
-license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Playback device backend on tinyaudio"
 
 [dependencies]
 rameau_playback = { path = "../rameau_playback", version = "0.1.0" }

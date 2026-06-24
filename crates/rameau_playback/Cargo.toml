@@ -1,8 +1,11 @@
 [package]
 name = "rameau_playback"
-version = "0.1.0"
-edition = "2024"
-license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Backend-independent device and sample-engine traits"
 
 [dependencies]
 rameau_clip = { path = "../rameau_clip", version = "0.1.0" }

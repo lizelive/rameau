@@ -1,8 +1,11 @@
 [package]
 name = "rameau_kira"
-version = "0.1.0"
-edition = "2024"
-license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Real-time AudioPlayback backend on kira"
 
 [dependencies]
 kira = "0.12"
