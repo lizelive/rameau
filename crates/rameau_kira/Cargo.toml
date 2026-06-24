@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 kira = "0.12"
-rameau_clip = { path = "../rameau_clip" }
-rameau_playback = { path = "../rameau_playback" }
+rameau_clip = { path = "../rameau_clip", version = "0.1.0" }
+rameau_playback = { path = "../rameau_playback", version = "0.1.0" }

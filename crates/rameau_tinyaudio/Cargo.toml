@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rameau_playback = { path = "../rameau_playback" }
+rameau_playback = { path = "../rameau_playback", version = "0.1.0" }
 tinyaudio = "2"

@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rameau_clip = { path = "../rameau_clip" }
-rameau_midi = { path = "../rameau_midi" }
-rameau_playback = { path = "../rameau_playback" }
-rameau_soundfont = { path = "../rameau_soundfont" }
+rameau_clip = { path = "../rameau_clip", version = "0.1.0" }
+rameau_midi = { path = "../rameau_midi", version = "0.1.0" }
+rameau_playback = { path = "../rameau_playback", version = "0.1.0" }
+rameau_soundfont = { path = "../rameau_soundfont", version = "0.1.0" }
 
 [dev-dependencies]
-rameau_kira = { path = "../rameau_kira" }
-rameau_software = { path = "../rameau_software" }
-rameau_tinyaudio = { path = "../rameau_tinyaudio" }
-rameau_wav = { path = "../rameau_wav" }
+rameau_kira = { path = "../rameau_kira", version = "0.1.0" }
+rameau_software = { path = "../rameau_software", version = "0.1.0" }
+rameau_tinyaudio = { path = "../rameau_tinyaudio", version = "0.1.0" }
+rameau_wav = { path = "../rameau_wav", version = "0.1.0" }
 
 [[example]]
 name = "interactive"
