@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "SoundFont-based MIDI playback behind a high-level MusicEngine"
+# Large SoundFont banks are runtime sample assets, not compiled into the crate;
+# excluding them keeps the published package under crates.io's 10 MiB limit.
+exclude = ["assets"]
 
 [dependencies]
 rameau_kira = { path = "crates/rameau_kira", version = "0.1.0" }
