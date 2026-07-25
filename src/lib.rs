@@ -21,6 +21,30 @@
 //! engine.play_midi(&song)?;
 //! # Ok(()) }
 //! ```
+//!
+//! # The `unison` feature
+//!
+//! Enabling the optional `unison` feature embeds a general-MIDI bank in the
+//! binary and adds [`MusicEngine::new`], which needs no SoundFont file at all:
+//!
+//! ```toml
+//! rameau = { version = "0.1", features = ["unison"] }
+//! ```
+//!
+//! ```no_run
+//! # #[cfg(feature = "unison")]
+//! # fn main() -> Result<(), rameau::EngineError> {
+//! use rameau::MusicEngine;
+//!
+//! let mut engine = MusicEngine::new()?;
+//! # Ok(()) }
+//! # #[cfg(not(feature = "unison"))]
+//! # fn main() {}
+//! ```
+//!
+//! The feature is off by default because the bank costs about 6.6 MiB of
+//! binary size, which is wasted on any program that supplies its own. See
+//! [`rameau_unison`] for the bank's licensing, which differs from this crate's.
 
 use std::path::Path;
 use std::thread;
@@ -76,6 +100,24 @@ impl MusicEngine {
     pub fn init(soundfont: impl AsRef<Path>) -> Result<Self, EngineError> {
         let mut backend = Kira::new()?;
         let sf: SoundFont<_> = SoundFont::load_file_with(soundfont, &mut backend)?;
+        let synth = Synthesizer::new(sf, backend, SAMPLE_RATE);
+        Ok(Self { synth })
+    }
+
+    /// Opens the default audio device with the built-in Unison bank.
+    ///
+    /// Requires the `unison` feature. This is [`init`](Self::init) without the
+    /// file: the bank ships inside the binary, so nothing needs to be found on
+    /// disk at run time.
+    ///
+    /// The bank's samples are handed to kira as Ogg/Vorbis and decoded into its
+    /// clip type. That is real work for a 655-sample bank — about a second in a
+    /// release build — so construct the engine once and keep it, rather than
+    /// once per song.
+    #[cfg(feature = "unison")]
+    pub fn new() -> Result<Self, EngineError> {
+        let mut backend = Kira::new()?;
+        let sf = rameau_unison::load_with(&mut backend)?;
         let synth = Synthesizer::new(sf, backend, SAMPLE_RATE);
         Ok(Self { synth })
     }

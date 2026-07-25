@@ -16,6 +16,18 @@ rameau_midi = { path = "crates/rameau_midi", version = "0.1.0" }
 rameau_playback = { path = "crates/rameau_playback", version = "0.1.0" }
 rameau_soundfont = { path = "crates/rameau_soundfont", version = "0.1.0" }
 rameau_synthesizer = { path = "crates/rameau_synthesizer", version = "0.1.0" }
+rameau_unison = { path = "crates/rameau_unison", version = "0.1.0", optional = true }
+
+[features]
+default = []
+# Embeds the Unison bank (about 6.6 MiB) and enables `MusicEngine::new()`,
+# which needs no SoundFont file. Off by default so that callers who supply
+# their own bank do not pay for one they will not use.
+unison = ["dep:rameau_unison"]
+
+[[example]]
+name = "play_unison"
+required-features = ["unison"]
 
 [workspace]
 members = ["crates/*"]
