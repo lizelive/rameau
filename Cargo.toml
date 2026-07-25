@@ -26,3 +26,30 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/lizelive/rameau"
 homepage = "https://github.com/lizelive/rameau"
+
+# The Ogg/Vorbis codecs are C libraries compiled through `cc`, and are unusably
+# slow at the debug default of `opt-level = 0` — converting a 655-sample bank
+# goes from seconds to many minutes, which makes the conversion tests look like
+# they have hung. `cc` reads Cargo's per-package `OPT_LEVEL`, so these raise the
+# optimisation level of the bundled C sources too, not just the Rust wrappers.
+#
+# These must live in the workspace root: Cargo only honours `[profile.*]` in a
+# workspace's root manifest and ignores it in members, so this is both the only
+# place they work and the place that makes them apply workspace-wide, however
+# the build was invoked.
+#
+# `profile.test` and `profile.bench` inherit from `profile.dev`, so test builds
+# are covered without repeating this. `profile.release` is already `opt-level = 3`.
+[profile.dev.package.vorbis_rs]
+opt-level = 3
+
+[profile.dev.package.aotuv_lancer_vorbis_sys]
+opt-level = 3
+
+[profile.dev.package.ogg_next_sys]
+opt-level = 3
+
+# The decoder side: `rameau_soundfont` decodes .sf3 banks with lewton, and the
+# conversion tests decode a whole bank back to verify the round-trip.
+[profile.dev.package.lewton]
+opt-level = 3
