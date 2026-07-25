@@ -93,6 +93,7 @@ fn main() {
         }
     };
 
+    let meter = audio::PeakMeter::default();
     let render = audio::render_callback(
         soundfont,
         backend,
@@ -100,6 +101,7 @@ fn main() {
         config.buffer_len(),
         rx,
         DEFAULT_PROGRAM,
+        meter.clone(),
     );
 
     let _stream = match TinyAudio.open(config, render) {
@@ -110,12 +112,42 @@ fn main() {
         }
     };
 
+    if args.iter().any(|a| a == "--test-tone") {
+        test_tone(&tx, &meter);
+        return;
+    }
+
     print_help();
     // Raw mode is restored on the way out of this call, including on panic.
     if let Err(e) = input::run_keyboard(&tx) {
         eprintln!("keyboard input failed: {e}");
     }
     println!("bye");
+}
+
+/// Plays a C major chord through the full audio path, with no keyboard
+/// involved, and reports the level that actually reached the device.
+///
+/// "I hear nothing" has two very different causes that feel identical: the
+/// synth produced silence, or it produced audio the device never played. The
+/// reported peak separates them — a healthy peak with no sound heard means the
+/// output device is the problem, not this program.
+fn test_tone(tx: &mpsc::Sender<input::Command>, meter: &audio::PeakMeter) {
+    println!("playing a test tone (no keyboard input involved)...");
+    for (i, key) in [60u8, 64, 67, 72].into_iter().enumerate() {
+        tx.send(input::Command::NoteOn { key, vel: 100 }).ok();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        println!("  note {} ({key}): peak {:.3}", i + 1, meter.take());
+    }
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    for key in [60u8, 64, 67, 72] {
+        tx.send(input::Command::NoteOff { key }).ok();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(400));
+
+    println!();
+    println!("if those peaks were above zero but you heard nothing, the synth is");
+    println!("working and the output device is not the one you are listening to.");
 }
 
 /// The value following `flag` in `args`, if present.

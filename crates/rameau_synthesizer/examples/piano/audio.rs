@@ -6,6 +6,8 @@
 //! clock advances in lockstep with the callback, timing never drifts with buffer
 //! size.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Receiver;
 
 use rameau_clip::Clip;
@@ -23,6 +25,26 @@ pub const CHANNEL: u8 = 0;
 type Backend = Software;
 type Bank = SoundFont<<Software as rameau_playback::AudioPlayback>::Clip>;
 
+/// Peak level of the rendered output, in thousandths of full scale.
+///
+/// Shared with the audio thread so the caller can tell "the synth produced
+/// nothing" apart from "the synth produced audio the device did not play" —
+/// the two feel identical from the listener's chair.
+#[derive(Clone, Default)]
+pub struct PeakMeter(Arc<AtomicU32>);
+
+impl PeakMeter {
+    /// The loudest sample since the last read, in `0.0..` full scale.
+    pub fn take(&self) -> f32 {
+        self.0.swap(0, Ordering::Relaxed) as f32 / 1000.0
+    }
+
+    fn record(&self, buf: &[f32]) {
+        let peak = buf.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        self.0.fetch_max((peak * 1000.0) as u32, Ordering::Relaxed);
+    }
+}
+
 /// Builds the render closure driving `synth` from `rx`.
 pub fn render_callback(
     bank: Bank,
@@ -31,6 +53,7 @@ pub fn render_callback(
     buffer_len: usize,
     rx: Receiver<Command>,
     program: u8,
+    meter: PeakMeter,
 ) -> impl FnMut(&mut [f32]) {
     let mut synth = Synthesizer::new(bank, backend, sample_rate);
     let mut scratch = Clip::new(vec![0.0f32; buffer_len], sample_rate);
@@ -63,6 +86,7 @@ pub fn render_callback(
         scratch.data.resize(buf.len(), 0.0);
         let _ = synth.render(&mut scratch);
         buf.copy_from_slice(&scratch.data);
+        meter.record(buf);
 
         clock = block_start + (buf.len() / 2) as u64;
     }

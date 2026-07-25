@@ -201,12 +201,35 @@ impl Drop for RawMode {
     }
 }
 
-/// Whether this terminal reports key releases, and so can sustain held notes.
+/// Tracks whether this terminal actually reports key releases.
 ///
-/// Windows consoles do so without the enhancement protocol, which is why this
-/// is not simply `supports_keyboard_enhancement`.
-fn reports_releases(enhanced: bool) -> bool {
-    cfg!(windows) || enhanced
+/// This cannot be decided up front. A classic Windows console delivers release
+/// records, but the same binary under ConPTY — the VS Code integrated terminal,
+/// Windows Terminal — sees input translated to escape sequences and may get no
+/// releases at all, and on Unix it depends on the Kitty protocol. Assuming
+/// releases and being wrong is the worst case: the auto-repeat fallback stays
+/// disabled and notes never stop.
+///
+/// So assume nothing and watch. Until a release is actually observed the
+/// repeat-gate fallback runs, which stops notes in every terminal. The first
+/// genuine release switches to precise release-driven note-offs.
+#[derive(Debug, Default)]
+struct ReleaseSupport {
+    seen: bool,
+}
+
+impl ReleaseSupport {
+    /// Records that a real release event arrived.
+    fn observed(&mut self) -> bool {
+        let first = !self.seen;
+        self.seen = true;
+        first
+    }
+
+    /// Whether note-offs can be left to release events alone.
+    fn trusted(&self) -> bool {
+        self.seen
+    }
 }
 
 /// Mutable state for the keyboard: which characters are sounding, and the
@@ -323,22 +346,16 @@ fn status(msg: &str) {
 ///
 /// Blocks, so the caller should treat this as the demo's main loop.
 pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
-    let raw = RawMode::enter()?;
-    let releases = reports_releases(raw.enhanced);
-
-    if releases {
-        status("held keys sustain (this terminal reports key releases)");
-    } else {
-        status("this terminal does not report key releases:");
-        status("notes sustain while auto-repeat continues; space toggles the pedal");
-    }
+    let _raw = RawMode::enter()?;
+    let mut releases = ReleaseSupport::default();
+    status("notes sustain while held; the pedal is space");
 
     let mut kb = Keyboard::new();
     loop {
-        // Without release events the gate has to be re-checked on a timer, so
-        // poll rather than block; with them, this just costs a wakeup.
+        // Until releases are known to work the gate has to be re-checked on a
+        // timer, so poll rather than block; afterwards this just costs a wakeup.
         if !event::poll(Duration::from_millis(20))? {
-            if !releases {
+            if !releases.trusted() {
                 kb.expire_held(tx);
             }
             continue;
@@ -355,6 +372,11 @@ pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
         };
 
         if kind == KeyEventKind::Release {
+            if releases.observed() {
+                // Now that releases are known to arrive, the timer fallback can
+                // stand down and held notes sustain for exactly as long as held.
+                status("held keys sustain (this terminal reports key releases)");
+            }
             if let KeyCode::Char(ch) = code {
                 let ch = ch.to_ascii_lowercase();
                 if semitone_for(ch).is_some() {
@@ -375,7 +397,7 @@ pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
         match code {
             KeyCode::Esc => break,
             KeyCode::Char(' ') => {
-                if releases {
+                if releases.trusted() {
                     let _ = tx.send(Command::Sustain(true));
                 } else {
                     kb.sustain = !kb.sustain;
@@ -402,7 +424,7 @@ pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
             _ => {}
         }
 
-        if !releases {
+        if !releases.trusted() {
             kb.expire_held(tx);
         }
     }
