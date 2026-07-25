@@ -271,6 +271,10 @@ impl Keyboard {
         }
         let key = (self.octave_key + semitone).clamp(0, 127) as u8;
         self.held.insert(ch, key);
+        // Echo the note. Besides being pleasant to watch, this is the fastest
+        // way to tell a dead keyboard from dead audio: if names appear and
+        // nothing sounds, the problem is downstream of input.
+        status(&format!("{} ({key})", note_name(key)));
         let _ = tx.send(Command::NoteOn { key, vel: self.vel });
     }
 
@@ -340,6 +344,54 @@ fn status(msg: &str) {
     print!("\r  {msg}\r\n");
     use std::io::Write;
     let _ = std::io::stdout().flush();
+}
+
+/// Reports what this terminal actually delivers, and echoes every event.
+///
+/// When keys do nothing, the useful question is whether the events arrive at
+/// all. This answers it without any of the synth in the way.
+pub fn debug_input() -> std::io::Result<()> {
+    println!("terminal diagnostics:");
+    println!(
+        "  stdin is a terminal:      {}",
+        std::io::IsTerminal::is_terminal(&std::io::stdin())
+    );
+    println!(
+        "  keyboard enhancement:     {:?}",
+        supports_keyboard_enhancement()
+    );
+
+    let raw = match RawMode::enter() {
+        Ok(r) => r,
+        Err(e) => {
+            println!("  raw mode:                 FAILED ({e})");
+            println!();
+            println!("Raw mode is required to read keys. This usually means the program");
+            println!("is not attached to a real terminal - check that it is not running");
+            println!("through a pipe, a task runner, or an IDE output pane.");
+            return Ok(());
+        }
+    };
+    println!("  raw mode:                 ok");
+    println!("  release events requested: {}", raw.enhanced);
+    println!();
+    status("press keys - every event is echoed. Esc to finish.");
+
+    loop {
+        if !event::poll(Duration::from_millis(500))? {
+            status("(no event in 500ms)");
+            continue;
+        }
+        let ev = event::read()?;
+        status(&format!("{ev:?}"));
+        if let Event::Key(KeyEvent {
+            code: KeyCode::Esc, ..
+        }) = ev
+        {
+            break;
+        }
+    }
+    Ok(())
 }
 
 /// Runs the computer keyboard until Esc (or Ctrl-C).

@@ -42,17 +42,30 @@ const DEFAULT_PROGRAM: u8 = 0;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // Pure terminal diagnostics: no audio device, no SoundFont, nothing that
+    // could fail first and mask the answer.
+    if args.iter().any(|a| a == "--debug-input") {
+        if let Err(e) = input::debug_input() {
+            eprintln!("input diagnostics failed: {e}");
+        }
+        return;
+    }
+
     let midi_filter = flag_value(&args, "--midi");
     let bank_path = args.iter().find(|a| !a.starts_with("--")).cloned();
 
     let config = PlaybackConfig {
         channels: 2,
         sample_rate: 48_000,
-        // ~10.7 ms blocks. Low enough that playing feels immediate, and the
-        // shortest period the platform can actually schedule: anything smaller
-        // starves the device rather than reducing latency. See
+        // ~21.3 ms blocks. Not the smallest that runs: the smallest that runs
+        // *without crackling*. Callback arrivals quantise to Windows' ~10 ms
+        // timer, so a 10.7 ms block beats against it — measured over 5 s, 512
+        // frames saw gaps up to 43 ms against a 21 ms buffer and dropped 0.2%
+        // of blocks, in both debug and release. At 1024 frames each block spans
+        // two whole timer ticks and no block was late. See also
         // `rameau_tinyaudio::min_frames_per_buffer`.
-        frames_per_buffer: 512,
+        frames_per_buffer: 1024,
     };
 
     // A single note measures about 0.064 peak through a GM bank and a four-note
@@ -120,7 +133,10 @@ fn main() {
     print_help();
     // Raw mode is restored on the way out of this call, including on panic.
     if let Err(e) = input::run_keyboard(&tx) {
-        eprintln!("keyboard input failed: {e}");
+        eprintln!();
+        eprintln!("could not read the keyboard: {e}");
+        eprintln!("this needs a real terminal — not a pipe, task runner or IDE");
+        eprintln!("output pane. Run `--debug-input` to see what this one reports.");
     }
     println!("bye");
 }
@@ -200,5 +216,8 @@ fn print_help() {
     println!("  [ / ]                       previous / next GM instrument");
     println!("  .                           panic (all notes off)");
     println!("  Esc                         quit");
+    println!();
+    println!("note names print as you play. If nothing prints, keys are not");
+    println!("reaching the program: run with --debug-input to see why.");
     println!();
 }
