@@ -18,7 +18,7 @@ pub struct Stream {
 
 impl Playback for TinyAudio {
     type Stream = Stream;
-    type Error = Box<dyn std::error::Error>;
+    type Error = Box<dyn core::error::Error>;
 
     fn open<F>(&self, config: PlaybackConfig, callback: F) -> Result<Self::Stream, Self::Error>
     where

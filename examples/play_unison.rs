@@ -5,6 +5,12 @@
 //! cargo run --release --features unison --example play_unison -- assets/heist.midi
 //! ```
 
+#![expect(
+    clippy::print_stdout,
+    reason = "an example reports what it is doing on stdout; that is the point \
+              of running it"
+)]
+
 use std::time::Instant;
 
 use rameau::MusicEngine;

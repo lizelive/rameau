@@ -1,6 +1,6 @@
 //! Encoding sample audio to the Ogg/Vorbis streams a `.sf3` bank stores.
 
-use std::num::{NonZeroU8, NonZeroU32};
+use core::num::{NonZeroU8, NonZeroU32};
 
 use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
 
@@ -57,7 +57,7 @@ pub(crate) fn encode_sample(
         .ok_or(Error::TooLarge("sample rate of zero cannot be encoded"))?;
 
     let mut ogg = Vec::new();
-    let mut encoder = VorbisEncoderBuilder::new(rate, NonZeroU8::new(1).unwrap(), &mut ogg)?
+    let mut encoder = VorbisEncoderBuilder::new(rate, NonZeroU8::MIN, &mut ogg)?
         .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
             target_quality: quality.get(),
         })

@@ -3,6 +3,10 @@
 pub struct MidiProgram(u8);
 
 impl MidiProgram {
+    /// The 1-based program number as shown in user interfaces (`1..=128`).
+    ///
+    /// General MIDI numbers instruments from 1, while the wire protocol and
+    /// [`index`](Self::index) use 0.
     pub fn display_number(&self) -> u8 {
         self.0 + 1
     }
@@ -27,6 +31,12 @@ impl From<u8> for MidiProgram {
     }
 }
 
+/// Defines the General MIDI program constants, their family groupings, and the
+/// name lookup, from one table.
+///
+/// Each entry is `IDENT("Display Name", number)` where `number` is the 1-based
+/// General MIDI program number. Documentation for each constant is generated
+/// from its display name, so the table stays readable.
 #[macro_export]
 macro_rules! midi_program {
     (
@@ -43,6 +53,10 @@ macro_rules! midi_program {
         // --- Instrument constants ---
         $(
             $(
+                #[doc = concat!(
+                    "The General MIDI \"", $name, "\" program (number ",
+                    stringify!($num), ")."
+                )]
                 $(#[$inst_meta])*
                 pub const $ident: MidiProgram = MidiProgram($num - 1);
             )*
@@ -60,6 +74,8 @@ macro_rules! midi_program {
 
         // --- Name lookup ---
         impl MidiProgram {
+            /// The instrument's General MIDI display name, or `"Unknown"` for
+            /// a program number outside the standard set.
             #[inline]
             pub fn get_name(&self) -> &'static str {
                 match self {

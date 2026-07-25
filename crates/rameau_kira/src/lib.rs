@@ -14,6 +14,10 @@
 //!   `velocity`/Doppler are **degraded** away, not errored.
 //! - offline render is real-time only → `PlaybackError::Unsupported`.
 
+
+// Linked explicitly so that items needing only allocation can be named via
+// `alloc::`, keeping `std::` for what genuinely requires the platform.
+extern crate alloc;
 mod backend;
 
 pub use backend::Kira;

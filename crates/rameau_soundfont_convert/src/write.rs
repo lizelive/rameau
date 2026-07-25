@@ -17,6 +17,11 @@ const SOFTWARE: &str = "rameau_soundfont_convert";
 const SF3_VERSION: (u16, u16) = (3, 0);
 
 /// Loads `input` (`.sf2` or `.sf3`) and writes it to `output` as `.sf3`.
+///
+/// # Errors
+///
+/// Returns [`Error::Load`] if `input` cannot be read or parsed, and otherwise
+/// as [`save_sf3`].
 pub fn convert_file(
     input: impl AsRef<Path>,
     output: impl AsRef<Path>,
@@ -27,6 +32,11 @@ pub fn convert_file(
 }
 
 /// Writes `sf` as a `.sf3` file at `path`.
+///
+/// # Errors
+///
+/// Returns [`Error::Io`] if `path` cannot be created or written, and otherwise
+/// as [`write_sf3`].
 pub fn save_sf3(sf: &SoundFont, quality: Quality, path: impl AsRef<Path>) -> Result<(), Error> {
     let file = std::fs::File::create(path)?;
     write_sf3(sf, quality, std::io::BufWriter::new(file))
@@ -37,6 +47,12 @@ pub fn save_sf3(sf: &SoundFont, quality: Quality, path: impl AsRef<Path>) -> Res
 /// Each sample is encoded as an independent Ogg/Vorbis stream, so unlike `.sf2`
 /// the sample pool needs no padding between samples and the sample headers
 /// address it by byte rather than by frame.
+///
+/// # Errors
+///
+/// Returns [`Error::Encode`] if a sample could not be encoded to Ogg/Vorbis,
+/// [`Error::TooLarge`] if the bank exceeds what the format can address, and
+/// [`Error::Io`] from writing to `out`.
 pub fn write_sf3<W: Write>(sf: &SoundFont, quality: Quality, mut out: W) -> Result<(), Error> {
     let (smpl, regions) = build_sample_pool(sf, quality)?;
     let pdta = build_pdta(sf, &regions)?;

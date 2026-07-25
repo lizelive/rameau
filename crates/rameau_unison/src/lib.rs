@@ -59,6 +59,12 @@ pub const SOUNDFONT: &[u8] = include_bytes!("../Unison.sf3");
 /// compile-time constant that this crate's own tests parse and validate, so a
 /// failure here means the compiled artifact is corrupt. Callers who want a
 /// fallible path should use [`load_with`].
+#[expect(
+    clippy::expect_used,
+    reason = "SOUNDFONT is a compile-time constant this crate's own tests parse; \
+              a failure here means the build artifact is corrupt, which no \
+              caller could meaningfully recover from"
+)]
 static BANK: LazyLock<SoundFont> = LazyLock::new(|| {
     SoundFont::from_bytes(SOUNDFONT)
         .expect("the embedded Unison bank failed to parse; the build artifact is corrupt")
@@ -83,6 +89,12 @@ pub fn soundfont() -> &'static SoundFont {
 /// backend, and the resulting clips are owned by it, so every backend needs its
 /// own copy. A backend that decodes Ogg/Vorbis itself — as the kira backend
 /// does — never materialises PCM at all.
+///
+/// # Errors
+///
+/// Returns [`Error::Backend`] if `backend` could not build a clip from a
+/// sample. The embedded bank itself always parses, so the parsing variants of
+/// [`Error`] do not arise here in practice.
 pub fn load_with<P: AudioPlayback>(backend: &mut P) -> Result<SoundFont<P::Clip>, Error> {
     SoundFont::from_bytes_with(SOUNDFONT, backend)
 }

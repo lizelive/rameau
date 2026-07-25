@@ -1,0 +1,8 @@
+# Test code is allowed the sharp tools: a panicking assertion IS the failure
+# mode a test wants, and indexing a fixture is clearer than unwrapping a get().
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+allow-indexing-slicing-in-tests = true

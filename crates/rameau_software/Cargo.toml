@@ -8,5 +8,8 @@ homepage.workspace = true
 description = "Pure-software mixing backend for offline rendering"
 
 [dependencies]
-rameau_clip = { path = "../rameau_clip", version = "0.1.0" }
-rameau_playback = { path = "../rameau_playback", version = "0.1.0" }
+rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
+rameau_playback = { path = "../rameau_playback", version = "0.2.0" }
+
+[lints]
+workspace = true

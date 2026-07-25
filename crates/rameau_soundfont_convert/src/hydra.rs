@@ -246,7 +246,11 @@ fn name20(name: &str) -> [u8; 20] {
     while end > 0 && !name.is_char_boundary(end) {
         end -= 1;
     }
-    out[..end].copy_from_slice(&name.as_bytes()[..end]);
+    // `end` was walked down from `min(20)` to a char boundary, so both slices
+    // exist; `zip` copies the overlap without asserting that.
+    for (slot, byte) in out.iter_mut().zip(name.as_bytes().iter().take(end)) {
+        *slot = *byte;
+    }
     out
 }
 
@@ -446,7 +450,7 @@ mod tests {
         let p = build_pdta(&sf, &regions()).unwrap();
         let name = &p.phdr[..20];
         let end = name.iter().position(|&b| b == 0).unwrap_or(20);
-        std::str::from_utf8(&name[..end]).expect("truncated name must stay valid UTF-8");
+        core::str::from_utf8(&name[..end]).expect("truncated name must stay valid UTF-8");
         assert_eq!(end, 19, "the split character should be dropped entirely");
     }
 

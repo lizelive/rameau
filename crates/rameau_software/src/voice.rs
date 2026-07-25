@@ -1,6 +1,6 @@
 //! A single sounding voice in the software mixer.
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use rameau_clip::Clip;
 
@@ -8,7 +8,7 @@ use crate::envelope::Envelope;
 
 /// Equal-power pan gains for `pan` in `-1.0..=1.0` (left..right).
 fn pan_gains(pan: f32) -> (f32, f32) {
-    let angle = (pan.clamp(-1.0, 1.0) + 1.0) * 0.5 * std::f32::consts::FRAC_PI_2;
+    let angle = (pan.clamp(-1.0, 1.0) + 1.0) * 0.5 * core::f32::consts::FRAC_PI_2;
     (angle.cos(), angle.sin())
 }
 
@@ -46,7 +46,12 @@ pub struct Voice {
 
 impl Voice {
     /// Starts a voice reading `clip`, becoming audible at `start_frame`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a voice is defined by exactly these independent parameters; \
+                  grouping them into a struct would only move the same list \
+                  one level out"
+    )]
     pub fn new(
         id: u64,
         clip: Arc<Clip<i16>>,
@@ -157,18 +162,26 @@ impl Voice {
                 self.release_frame = None;
             }
 
-            // Linear interpolation between the two straddling samples.
+            // Linear interpolation between the two straddling samples. Reading
+            // through `get` costs the same bounds check indexing already did,
+            // and treats a position past the end as silence rather than a panic.
             let i = self.pos.floor();
             let frac = (self.pos - i) as f32;
             let i0 = i as usize;
             let i1 = if (i + 1.0) <= last { i0 + 1 } else { i0 };
-            let s0 = data[i0] as f32;
-            let s1 = data[i1] as f32;
+            let s0 = data.get(i0).copied().unwrap_or(0) as f32;
+            let s1 = data.get(i1).copied().unwrap_or(0) as f32;
             let sample_value = (s0 + (s1 - s0) * frac) * (1.0 / 32768.0);
 
             let g = self.env.next_gain();
-            out[fi * 2] += sample_value * g * gl;
-            out[fi * 2 + 1] += sample_value * g * gr;
+            // The output is interleaved stereo, so each frame is one pair.
+            if let Some([left, right]) = out
+                .get_mut(fi * 2..fi * 2 + 2)
+                .and_then(|frame| <&mut [f32; 2]>::try_from(frame).ok())
+            {
+                *left += sample_value * g * gl;
+                *right += sample_value * g * gr;
+            }
 
             self.pos += self.increment;
 

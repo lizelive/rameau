@@ -8,3 +8,6 @@ homepage.workspace = true
 description = "Shared core types (placeholder)"
 
 [dependencies]
+
+[lints]
+workspace = true

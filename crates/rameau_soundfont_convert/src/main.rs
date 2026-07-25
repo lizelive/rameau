@@ -1,5 +1,11 @@
 //! `sf2-to-sf3` — convert a SoundFont bank to the Ogg/Vorbis-compressed format.
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "this is a command-line program; reporting progress and \n              errors on the standard streams is its interface"
+)]
+
 use std::process::ExitCode;
 
 use rameau_soundfont_convert::{Quality, convert_file};

@@ -20,6 +20,12 @@
 //!   Esc                         quit
 //! ```
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "this is a command-line program; reporting progress and \n              errors on the standard streams is its interface"
+)]
+
 mod audio;
 mod input;
 
@@ -66,7 +72,7 @@ fn main() {
     let (tx, rx) = mpsc::channel();
 
     // Held for the process lifetime: dropping the connections stops MIDI input.
-    let _midi = match input::connect_midi(tx.clone(), midi_filter.as_deref()) {
+    let _midi = match input::connect_midi(&tx, midi_filter.as_deref()) {
         Ok(m) if m.ports.is_empty() => {
             println!("no MIDI input ports; playing from the computer keyboard");
             Some(m)
@@ -100,7 +106,7 @@ fn main() {
 
     print_help();
     // Raw mode is restored on the way out of this call, including on panic.
-    if let Err(e) = input::run_keyboard(tx) {
+    if let Err(e) = input::run_keyboard(&tx) {
         eprintln!("keyboard input failed: {e}");
     }
     println!("bye");

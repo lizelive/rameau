@@ -4,6 +4,12 @@ use rameau_midi::event::MidiEvent;
 use rameau_midi::smf::{Division, Format, MetaEvent, Smf, TrackEventKind};
 
 /// Load the workspace's `assets/heist.midi`.
+#[expect(
+    clippy::expect_used,
+    reason = "test fixture: a missing asset should fail the test loudly, and \
+              this helper sits outside a #[test] fn so the in-tests allowance \
+              does not apply"
+)]
 fn heist_bytes() -> Vec<u8> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/heist.midi");
     std::fs::read(path).expect("read assets/heist.midi")

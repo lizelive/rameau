@@ -215,6 +215,14 @@ impl Smf {
     }
 
     /// Parse the bytes of a Standard MIDI File.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MidiError::InvalidHeader`] if the file does not start with a
+    /// well-formed `MThd` chunk, [`MidiError::UnsupportedFormat`] for a format
+    /// this parser does not handle, [`MidiError::UnexpectedEof`] if the data
+    /// ends mid-chunk, and [`MidiError::InvalidVarLen`] for a malformed
+    /// variable-length quantity.
     pub fn parse(bytes: &[u8]) -> Result<Smf, MidiError> {
         let mut r = Reader::new(bytes);
 
@@ -329,6 +337,13 @@ impl MidiEvent {
     /// let ev = MidiEvent::from_bytes(&[0x90, 60, 100]).unwrap();
     /// assert_eq!(ev, MidiEvent::NoteOn { channel: 0, key: 60, vel: 100 });
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MidiError::UnexpectedEof`] if `bytes` is empty or holds too
+    /// few data bytes for the message, [`MidiError::RunningStatus`] if it
+    /// begins with a data byte rather than a status byte, and
+    /// [`MidiError::BadValue`] for a status byte this parser does not accept.
     pub fn from_bytes(bytes: &[u8]) -> Result<MidiEvent, MidiError> {
         let (&status, rest) = bytes.split_first().ok_or(MidiError::UnexpectedEof)?;
         if status < 0x80 {
@@ -415,22 +430,25 @@ fn parse_meta(r: &mut Reader) -> Result<MetaEvent, MidiError> {
     let len = r.vlq()? as usize;
     let data = r.bytes(len)?;
 
-    let meta = match meta_type {
-        0x01 => MetaEvent::Text(String::from_utf8_lossy(data).into_owned()),
-        0x03 => MetaEvent::TrackName(String::from_utf8_lossy(data).into_owned()),
-        0x2F => MetaEvent::EndOfTrack,
-        0x51 if data.len() == 3 => {
-            MetaEvent::Tempo(u32::from_be_bytes([0, data[0], data[1], data[2]]))
+    // Matching on `(type, payload)` lets slice patterns bind the payload bytes
+    // directly: a meta event whose payload is the wrong length simply falls
+    // through to `Other`, exactly as the length guards used to arrange.
+    let meta = match (meta_type, data) {
+        (0x01, _) => MetaEvent::Text(String::from_utf8_lossy(data).into_owned()),
+        (0x03, _) => MetaEvent::TrackName(String::from_utf8_lossy(data).into_owned()),
+        (0x2F, _) => MetaEvent::EndOfTrack,
+        (0x51, &[hi, mid, lo]) => MetaEvent::Tempo(u32::from_be_bytes([0, hi, mid, lo])),
+        (0x58, &[numerator, denominator, clocks_per_click, thirty_seconds_per_quarter]) => {
+            MetaEvent::TimeSignature {
+                numerator,
+                denominator: 1u8.checked_shl(u32::from(denominator)).unwrap_or(0),
+                clocks_per_click,
+                thirty_seconds_per_quarter,
+            }
         }
-        0x58 if data.len() == 4 => MetaEvent::TimeSignature {
-            numerator: data[0],
-            denominator: 1u8.checked_shl(u32::from(data[1])).unwrap_or(0),
-            clocks_per_click: data[2],
-            thirty_seconds_per_quarter: data[3],
-        },
-        0x59 if data.len() == 2 => MetaEvent::KeySignature {
-            sharps: data[0] as i8,
-            minor: data[1] != 0,
+        (0x59, &[sharps, minor]) => MetaEvent::KeySignature {
+            sharps: sharps as i8,
+            minor: minor != 0,
         },
         _ => MetaEvent::Other {
             meta_type,
@@ -457,10 +475,6 @@ impl<'a> Reader<'a> {
         self.pos >= self.data.len()
     }
 
-    fn remaining(&self) -> usize {
-        self.data.len() - self.pos
-    }
-
     fn u8(&mut self) -> Result<u8, MidiError> {
         let b = *self.data.get(self.pos).ok_or(MidiError::UnexpectedEof)?;
         self.pos += 1;
@@ -481,17 +495,22 @@ impl<'a> Reader<'a> {
     }
 
     fn bytes(&mut self, n: usize) -> Result<&'a [u8], MidiError> {
-        if self.remaining() < n {
-            return Err(MidiError::UnexpectedEof);
-        }
-        let slice = &self.data[self.pos..self.pos + n];
-        self.pos += n;
+        // `get` subsumes the bounds check, and `checked_add` keeps a huge
+        // declared length from wrapping the end offset into a valid range.
+        let end = self.pos.checked_add(n).ok_or(MidiError::UnexpectedEof)?;
+        let slice = self
+            .data
+            .get(self.pos..end)
+            .ok_or(MidiError::UnexpectedEof)?;
+        self.pos = end;
         Ok(slice)
     }
 
     fn tag(&mut self) -> Result<[u8; 4], MidiError> {
-        let b = self.bytes(4)?;
-        Ok([b[0], b[1], b[2], b[3]])
+        // `bytes(4)` yields exactly four bytes, so the conversion cannot fail.
+        self.bytes(4)?
+            .try_into()
+            .map_err(|_| MidiError::UnexpectedEof)
     }
 
     /// Read a MIDI variable-length quantity (7 bits per byte, MSB continues).

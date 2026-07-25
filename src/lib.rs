@@ -48,7 +48,8 @@
 
 use std::path::Path;
 use std::thread;
-use std::time::{Duration, Instant};
+use core::time::Duration;
+use std::time::Instant;
 
 use rameau_kira::Kira;
 use rameau_midi::smf::Smf;
@@ -97,6 +98,11 @@ impl MusicEngine {
     ///
     /// Accepts `.sf2` and `.sf3` banks. The samples are decoded straight into
     /// kira's own clip type, so playback never has to touch raw PCM again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::Playback`] if no audio device is available, or
+    /// [`EngineError::SoundFont`] if the bank cannot be loaded.
     pub fn init(soundfont: impl AsRef<Path>) -> Result<Self, EngineError> {
         let mut backend = Kira::new()?;
         let sf: SoundFont<_> = SoundFont::load_file_with(soundfont, &mut backend)?;
@@ -114,6 +120,12 @@ impl MusicEngine {
     /// clip type. That is real work for a 655-sample bank — about a second in a
     /// release build — so construct the engine once and keep it, rather than
     /// once per song.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::Playback`] if no audio device is available, or
+    /// [`EngineError::SoundFont`] if the embedded bank could not be handed to
+    /// the backend.
     #[cfg(feature = "unison")]
     pub fn new() -> Result<Self, EngineError> {
         let mut backend = Kira::new()?;
@@ -126,6 +138,11 @@ impl MusicEngine {
     ///
     /// This only reads and decodes the file; nothing is played until
     /// [`play_midi`](Self::play_midi).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::Io`] if `path` cannot be read, or
+    /// [`EngineError::Midi`] if it is not a well-formed Standard MIDI File.
     pub fn load_midi(&self, path: impl AsRef<Path>) -> Result<Song, EngineError> {
         let bytes = std::fs::read(path)?;
         let smf = Smf::parse(&bytes)?;
@@ -138,6 +155,10 @@ impl MusicEngine {
     ///
     /// Events are dispatched on the calling thread as each one comes due, then
     /// the engine waits a short tail so release tails can ring out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::Playback`] if the backend rejected an event.
     pub fn play_midi(&mut self, song: &Song) -> Result<(), EngineError> {
         let start = Instant::now();
         for &(secs, event) in &song.events {
@@ -171,8 +192,8 @@ pub enum EngineError {
     Io(std::io::Error),
 }
 
-impl std::fmt::Display for EngineError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for EngineError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             EngineError::Playback(e) => write!(f, "playback error: {e}"),
             EngineError::SoundFont(e) => write!(f, "soundfont error: {e}"),
@@ -182,7 +203,7 @@ impl std::fmt::Display for EngineError {
     }
 }
 
-impl std::error::Error for EngineError {}
+impl core::error::Error for EngineError {}
 
 impl From<PlaybackError> for EngineError {
     fn from(e: PlaybackError) -> Self {

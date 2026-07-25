@@ -7,7 +7,8 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
-use std::time::{Duration, Instant};
+use core::time::Duration;
+use std::time::Instant;
 
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
@@ -104,7 +105,7 @@ pub struct MidiInputs {
 /// With no `filter`, every available port is opened, so whichever controller is
 /// plugged in just works. With one, only ports whose name contains it (case
 /// insensitively) are opened.
-pub fn connect_midi(tx: Sender<Command>, filter: Option<&str>) -> Result<MidiInputs, String> {
+pub fn connect_midi(tx: &Sender<Command>, filter: Option<&str>) -> Result<MidiInputs, String> {
     let input = MidiInput::new("rameau piano").map_err(|e| e.to_string())?;
     let mut connections = Vec::new();
     let mut names = Vec::new();
@@ -154,9 +155,10 @@ pub fn connect_midi(tx: Sender<Command>, filter: Option<&str>) -> Result<MidiInp
 fn forward(tx: &Sender<Command>, ev: MidiEvent) {
     let cmd = match ev {
         // A note-on with zero velocity is the conventional note-off.
-        MidiEvent::NoteOn { key, vel: 0, .. } => Command::NoteOff { key },
+        MidiEvent::NoteOn { key, vel: 0, .. } | MidiEvent::NoteOff { key, .. } => {
+            Command::NoteOff { key }
+        }
         MidiEvent::NoteOn { key, vel, .. } => Command::NoteOn { key, vel },
-        MidiEvent::NoteOff { key, .. } => Command::NoteOff { key },
         MidiEvent::ControlChange { ctrl: 64, value, .. } => Command::Sustain(value >= 64),
         MidiEvent::ProgramChange { program, .. } => Command::Program(program.into()),
         MidiEvent::AllNotesOff { .. } | MidiEvent::AllSoundOff { .. } => Command::Panic,
@@ -306,7 +308,8 @@ fn note_name(key: u8) -> String {
     const NAMES: [&str; 12] = [
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
     ];
-    format!("{}{}", NAMES[key as usize % 12], key as i32 / 12 - 1)
+    let name = NAMES.get(key as usize % 12).copied().unwrap_or("?");
+    format!("{}{}", name, key as i32 / 12 - 1)
 }
 
 /// Prints a line in raw mode, where a bare newline does not return the cursor.
@@ -319,7 +322,7 @@ fn status(msg: &str) {
 /// Runs the computer keyboard until Esc (or Ctrl-C).
 ///
 /// Blocks, so the caller should treat this as the demo's main loop.
-pub fn run_keyboard(tx: Sender<Command>) -> std::io::Result<()> {
+pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
     let raw = RawMode::enter()?;
     let releases = reports_releases(raw.enhanced);
 
@@ -336,7 +339,7 @@ pub fn run_keyboard(tx: Sender<Command>) -> std::io::Result<()> {
         // poll rather than block; with them, this just costs a wakeup.
         if !event::poll(Duration::from_millis(20))? {
             if !releases {
-                kb.expire_held(&tx);
+                kb.expire_held(tx);
             }
             continue;
         }
@@ -355,7 +358,7 @@ pub fn run_keyboard(tx: Sender<Command>) -> std::io::Result<()> {
             if let KeyCode::Char(ch) = code {
                 let ch = ch.to_ascii_lowercase();
                 if semitone_for(ch).is_some() {
-                    kb.note_off(&tx, ch);
+                    kb.note_off(tx, ch);
                 }
             }
             if code == KeyCode::Char(' ') {
@@ -381,29 +384,29 @@ pub fn run_keyboard(tx: Sender<Command>) -> std::io::Result<()> {
                 }
             }
             KeyCode::Char('.') => {
-                kb.all_off(&tx);
+                kb.all_off(tx);
                 status("panic");
             }
             KeyCode::Up => kb.shift_octave(1),
             KeyCode::Down => kb.shift_octave(-1),
             KeyCode::Right => kb.shift_velocity(8),
             KeyCode::Left => kb.shift_velocity(-8),
-            KeyCode::Char(']') => kb.shift_program(&tx, 1),
-            KeyCode::Char('[') => kb.shift_program(&tx, -1),
+            KeyCode::Char(']') => kb.shift_program(tx, 1),
+            KeyCode::Char('[') => kb.shift_program(tx, -1),
             KeyCode::Char(ch) => {
                 let ch = ch.to_ascii_lowercase();
                 if let Some(semitone) = semitone_for(ch) {
-                    kb.note_on(&tx, ch, semitone);
+                    kb.note_on(tx, ch, semitone);
                 }
             }
             _ => {}
         }
 
         if !releases {
-            kb.expire_held(&tx);
+            kb.expire_held(tx);
         }
     }
 
-    kb.all_off(&tx);
+    kb.all_off(tx);
     Ok(())
 }

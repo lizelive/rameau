@@ -13,3 +13,6 @@ serde = { version = "1", optional = true, features = ["derive"] }
 [features]
 default = []
 serde = ["dep:serde"]
+
+[lints]
+workspace = true

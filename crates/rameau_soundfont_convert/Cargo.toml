@@ -8,8 +8,8 @@ homepage.workspace = true
 description = "Convert SoundFont banks from .sf2 to Ogg/Vorbis-compressed .sf3"
 
 [dependencies]
-rameau_clip = { path = "../rameau_clip", version = "0.1.0" }
-rameau_soundfont = { path = "../rameau_soundfont", version = "0.1.0" }
+rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
+rameau_soundfont = { path = "../rameau_soundfont", version = "0.2.0" }
 vorbis_rs = "0.5.5"
 
 [dev-dependencies]
@@ -18,3 +18,6 @@ lewton = "0.10.2"
 [[bin]]
 name = "sf2-to-sf3"
 path = "src/main.rs"
+
+[lints]
+workspace = true

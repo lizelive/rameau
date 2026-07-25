@@ -57,8 +57,8 @@ pub enum Error {
     TooLarge(&'static str),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::Io(e) => write!(f, "io error: {e}"),
             Error::Load(e) => write!(f, "could not load input soundfont: {e}"),
@@ -68,8 +68,8 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Error::Io(e) => Some(e),
             Error::Load(e) => Some(e),

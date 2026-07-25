@@ -34,8 +34,8 @@ pub enum Error {
     Backend(PlaybackError),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::Io(e) => write!(f, "io error: {e}"),
             Error::Format(m) => write!(f, "malformed soundfont: {m}"),
@@ -45,8 +45,8 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Error::Io(e) => Some(e),
             Error::Vorbis(e) => Some(e),
@@ -81,17 +81,33 @@ fn format(msg: impl Into<String>) -> Error {
 impl SoundFont {
     /// Loads a SoundFont from a `.sf2`/`.sf3` file on disk, decoding samples to
     /// PCM ([`Clip<i16>`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] if `path` cannot be read, [`Error::Format`] if it
+    /// is not a well-formed SoundFont, and [`Error::Vorbis`] if a compressed
+    /// sample cannot be decoded.
     pub fn load_file(path: impl AsRef<Path>) -> Result<Self, Error> {
         Self::load_file_with(path, &mut PcmFactory)
     }
 
     /// Loads a SoundFont from a seekable reader, decoding samples to PCM.
+    ///
+    /// # Errors
+    ///
+    /// As [`load_file`](Self::load_file), with [`Error::Io`] coming from
+    /// `reader` rather than from opening a file.
     pub fn load(reader: impl Read + Seek) -> Result<Self, Error> {
         Self::load_with(reader, &mut PcmFactory)
     }
 
     /// Loads a SoundFont from an in-memory `.sf2`/`.sf3` image, decoding samples
     /// to PCM.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Format`] if `bytes` is not a well-formed SoundFont, or
+    /// [`Error::Vorbis`] if a compressed sample cannot be decoded.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Self::from_bytes_with(bytes, &mut PcmFactory)
     }
@@ -100,6 +116,11 @@ impl SoundFont {
     ///
     /// The resulting [`SoundFont<P::Clip>`] stores backend-native clips, ready
     /// for the synthesizer to play through that same backend.
+    ///
+    /// # Errors
+    ///
+    /// As [`load_file`](Self::load_file), plus [`Error::Backend`] if `backend`
+    /// fails to build a clip from a sample.
     pub fn load_file_with<P: AudioPlayback>(
         path: impl AsRef<Path>,
         backend: &mut P,
@@ -109,6 +130,11 @@ impl SoundFont {
     }
 
     /// Loads a SoundFont from a reader, building each sample's clip with `backend`.
+    ///
+    /// # Errors
+    ///
+    /// As [`load_file_with`](Self::load_file_with), with [`Error::Io`] coming
+    /// from `reader`.
     pub fn load_with<P: AudioPlayback>(
         mut reader: impl Read + Seek,
         backend: &mut P,
@@ -119,6 +145,12 @@ impl SoundFont {
     }
 
     /// Loads a SoundFont from bytes, building each sample's clip with `backend`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Format`] if `bytes` is not a well-formed SoundFont,
+    /// [`Error::Vorbis`] if a compressed sample cannot be decoded, and
+    /// [`Error::Backend`] if `backend` fails to build a clip.
     pub fn from_bytes_with<P: AudioPlayback>(
         bytes: &[u8],
         backend: &mut P,
@@ -283,7 +315,10 @@ fn parse_version(data: &[u8]) -> Version {
 /// whitespace and NULs.
 fn parse_zstr(data: &[u8]) -> String {
     let end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
-    String::from_utf8_lossy(&data[..end]).trim_end().to_string()
+    // `end` came from `position`, so the slice always exists; `unwrap_or`
+    // keeps that obvious to the compiler as well as the reader.
+    let text = data.get(..end).unwrap_or(data);
+    String::from_utf8_lossy(text).trim_end().to_string()
 }
 
 // ----- pdta (the "hydra") ---------------------------------------------------
@@ -381,7 +416,7 @@ impl Hydra {
 
 /// Splits a hydra chunk into fixed-size records and parses each one.
 fn records<T>(data: &[u8], size: usize, parse: impl Fn(&[u8]) -> T) -> Result<Vec<T>, Error> {
-    if data.len() % size != 0 {
+    if !data.len().is_multiple_of(size) {
         return Err(format(
             "hydra chunk length is not a multiple of the record size",
         ));
@@ -389,61 +424,115 @@ fn records<T>(data: &[u8], size: usize, parse: impl Fn(&[u8]) -> T) -> Result<Ve
     Ok(data.chunks_exact(size).map(parse).collect())
 }
 
+/// A sequential little-endian reader over one fixed-size hydra record.
+///
+/// Records arrive from `chunks_exact`, so they are always the right length and
+/// the reads below always have data. Reading sequentially rather than by byte
+/// offset lets each parser read like the specification's field table, and
+/// keeps every access total: a short record yields zeroes instead of panicking.
+struct Record<'a>(&'a [u8]);
+
+impl<'a> Record<'a> {
+    /// Takes the next `n` bytes, or whatever remains if fewer are left.
+    fn take(&mut self, n: usize) -> &'a [u8] {
+        let (head, tail) = self.0.split_at(n.min(self.0.len()));
+        self.0 = tail;
+        head
+    }
+
+    fn u8(&mut self) -> u8 {
+        self.take(1).first().copied().unwrap_or(0)
+    }
+
+    fn i8(&mut self) -> i8 {
+        self.u8() as i8
+    }
+
+    fn u16(&mut self) -> u16 {
+        u16::from_le_bytes(self.take(2).try_into().unwrap_or([0; 2]))
+    }
+
+    fn i16(&mut self) -> i16 {
+        i16::from_le_bytes(self.take(2).try_into().unwrap_or([0; 2]))
+    }
+
+    fn u32(&mut self) -> u32 {
+        u32::from_le_bytes(self.take(4).try_into().unwrap_or([0; 4]))
+    }
+
+    /// Takes a fixed-width, NUL-padded name field.
+    fn name(&mut self, width: usize) -> String {
+        parse_zstr(self.take(width))
+    }
+
+    /// Takes the raw two-byte generator amount, whose meaning depends on the
+    /// generator it belongs to.
+    fn amount(&mut self) -> [u8; 2] {
+        self.take(2).try_into().unwrap_or([0; 2])
+    }
+}
+
 fn parse_phdr(r: &[u8]) -> PresetHeader {
+    let mut r = Record(r);
     PresetHeader {
-        name: parse_zstr(&r[0..20]),
-        program: le_u16(r, 20),
-        bank: le_u16(r, 22),
-        bag: le_u16(r, 24),
-        library: le_u32(r, 26),
-        genre: le_u32(r, 30),
-        morphology: le_u32(r, 34),
+        name: r.name(20),
+        program: r.u16(),
+        bank: r.u16(),
+        bag: r.u16(),
+        library: r.u32(),
+        genre: r.u32(),
+        morphology: r.u32(),
     }
 }
 
 fn parse_inst(r: &[u8]) -> InstHeader {
+    let mut r = Record(r);
     InstHeader {
-        name: parse_zstr(&r[0..20]),
-        bag: le_u16(r, 20),
+        name: r.name(20),
+        bag: r.u16(),
     }
 }
 
 fn parse_bag(r: &[u8]) -> Bag {
+    let mut r = Record(r);
     Bag {
-        gen_ndx: le_u16(r, 0),
-        mod_ndx: le_u16(r, 2),
+        gen_ndx: r.u16(),
+        mod_ndx: r.u16(),
     }
 }
 
 fn parse_mod(r: &[u8]) -> ModRecord {
+    let mut r = Record(r);
     ModRecord {
-        src: le_u16(r, 0),
-        dest: le_u16(r, 2),
-        amount: le_i16(r, 4),
-        amt_src: le_u16(r, 6),
-        trans: le_u16(r, 8),
+        src: r.u16(),
+        dest: r.u16(),
+        amount: r.i16(),
+        amt_src: r.u16(),
+        trans: r.u16(),
     }
 }
 
 fn parse_gen(r: &[u8]) -> GenRecord {
+    let mut r = Record(r);
     GenRecord {
-        oper: le_u16(r, 0),
-        amount: [r[2], r[3]],
+        oper: r.u16(),
+        amount: r.amount(),
     }
 }
 
 fn parse_shdr(r: &[u8]) -> SampleHeader {
+    let mut r = Record(r);
     SampleHeader {
-        name: parse_zstr(&r[0..20]),
-        start: le_u32(r, 20),
-        end: le_u32(r, 24),
-        start_loop: le_u32(r, 28),
-        end_loop: le_u32(r, 32),
-        sample_rate: le_u32(r, 36),
-        original_key: r[40],
-        correction: r[41] as i8,
-        link: le_u16(r, 42),
-        sample_type: le_u16(r, 44),
+        name: r.name(20),
+        start: r.u32(),
+        end: r.u32(),
+        start_loop: r.u32(),
+        end_loop: r.u32(),
+        sample_rate: r.u32(),
+        original_key: r.u8(),
+        correction: r.i8(),
+        link: r.u16(),
+        sample_type: r.u16(),
     }
 }
 
@@ -517,11 +606,12 @@ fn gen_amount(kind: GeneratorType, raw: [u8; 2]) -> GeneratorAmount {
 fn build_presets(hydra: &Hydra) -> Result<Vec<Preset>, Error> {
     // The final phdr record is the terminal "EOP" sentinel; it only bounds the
     // zones of the preceding preset.
-    let count = hydra.phdr.len().saturating_sub(1);
-    let mut presets = Vec::with_capacity(count);
-    for i in 0..count {
-        let header = &hydra.phdr[i];
-        let next = &hydra.phdr[i + 1];
+    let mut presets = Vec::with_capacity(hydra.phdr.len().saturating_sub(1));
+    // Each record is bounded by the next one's bag index, so walk overlapping
+    // pairs; the sentinel is consumed as the final `next` and never yields a
+    // preset of its own.
+    for pair in hydra.phdr.windows(2) {
+        let [header, next] = pair else { continue };
         let zones = build_zones(
             &hydra.pbag,
             &hydra.pgen,
@@ -544,11 +634,9 @@ fn build_presets(hydra: &Hydra) -> Result<Vec<Preset>, Error> {
 
 fn build_instruments(hydra: &Hydra) -> Result<Vec<Instrument>, Error> {
     // The final inst record is the terminal "EOI" sentinel.
-    let count = hydra.inst.len().saturating_sub(1);
-    let mut instruments = Vec::with_capacity(count);
-    for i in 0..count {
-        let header = &hydra.inst[i];
-        let next = &hydra.inst[i + 1];
+    let mut instruments = Vec::with_capacity(hydra.inst.len().saturating_sub(1));
+    for pair in hydra.inst.windows(2) {
+        let [header, next] = pair else { continue };
         let zones = build_zones(
             &hydra.ibag,
             &hydra.igen,
@@ -574,10 +662,12 @@ fn build_samples<P: AudioPlayback>(
     smpl: &[u8],
     backend: &mut P,
 ) -> Result<Vec<Sample<P::Clip>>, Error> {
-    // The final shdr record is the terminal "EOS" sentinel.
-    let count = headers.len().saturating_sub(1);
-    let mut samples = Vec::with_capacity(count);
-    for header in &headers[..count] {
+    // The final shdr record is the terminal "EOS" sentinel; drop it.
+    let Some((_sentinel, headers)) = headers.split_last() else {
+        return Ok(Vec::new());
+    };
+    let mut samples = Vec::with_capacity(headers.len());
+    for header in headers {
         let (clip, frame_count, loop_start, loop_end) =
             if header.sample_type & SAMPLE_TYPE_COMPRESSED != 0 {
                 // `.sf3`: an independent Ogg/Vorbis stream delimited by byte
@@ -657,14 +747,22 @@ fn slice<T>(data: &[T], from: usize, to: usize) -> Result<&[T], Error> {
         .ok_or_else(|| format("record offset out of range"))
 }
 
+/// Reads `N` bytes at `at`, yielding zeroes if the slice is too short.
+///
+/// Callers read from records whose length the caller has already established,
+/// so the fallback never fires in practice; it exists so these helpers are
+/// total rather than panicking.
+fn bytes_at<const N: usize>(d: &[u8], at: usize) -> [u8; N] {
+    d.get(at..)
+        .and_then(|rest| rest.get(..N))
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; N])
+}
+
 fn le_u16(d: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([d[at], d[at + 1]])
+    u16::from_le_bytes(bytes_at(d, at))
 }
 
 fn le_i16(d: &[u8], at: usize) -> i16 {
-    i16::from_le_bytes([d[at], d[at + 1]])
-}
-
-fn le_u32(d: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes([d[at], d[at + 1], d[at + 2], d[at + 3]])
+    i16::from_le_bytes(bytes_at(d, at))
 }

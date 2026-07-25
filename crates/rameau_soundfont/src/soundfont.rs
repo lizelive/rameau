@@ -40,7 +40,9 @@ pub struct SoundFont<C = Clip<i16>> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Version {
+    /// Major version.
     pub major: u16,
+    /// Minor version.
     pub minor: u16,
 }
 
@@ -149,7 +151,9 @@ pub enum GeneratorAmount {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Range {
+    /// Lowest value in the range, inclusive.
     pub low: u8,
+    /// Highest value in the range, inclusive.
     pub high: u8,
 }
 
@@ -178,14 +182,22 @@ pub struct Modulator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum SampleType {
+    /// A standalone mono sample.
     #[default]
     Mono,
+    /// The right channel of a stereo pair; its partner is at `link`.
     Right,
+    /// The left channel of a stereo pair; its partner is at `link`.
     Left,
+    /// One channel of a linked multi-channel set.
     Linked,
+    /// A mono sample living in the wavetable ROM rather than the file.
     RomMono,
+    /// The right channel of a stereo pair in ROM.
     RomRight,
+    /// The left channel of a stereo pair in ROM.
     RomLeft,
+    /// One channel of a linked multi-channel set in ROM.
     RomLinked,
     /// An unrecognized type flag, preserved verbatim.
     Other(u16),

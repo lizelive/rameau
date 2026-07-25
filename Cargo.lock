@@ -971,7 +971,7 @@ dependencies = [
 
 [[package]]
 name = "rameau"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rameau_kira",
  "rameau_midi",
@@ -983,18 +983,18 @@ dependencies = [
 
 [[package]]
 name = "rameau_chords"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "rameau_clip"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rameau_kira"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kira",
  "rameau_clip",
@@ -1003,21 +1003,21 @@ dependencies = [
 
 [[package]]
 name = "rameau_midi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rameau_playback"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rameau_clip",
 ]
 
 [[package]]
 name = "rameau_software"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rameau_clip",
  "rameau_playback",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "rameau_soundfont"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lewton",
  "rameau_clip",
@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "rameau_soundfont_convert"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lewton",
  "rameau_clip",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "rameau_synthesizer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crossterm",
  "midir",
@@ -1062,11 +1062,11 @@ dependencies = [
 
 [[package]]
 name = "rameau_theory"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "rameau_tinyaudio"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rameau_playback",
  "tinyaudio",
@@ -1074,11 +1074,11 @@ dependencies = [
 
 [[package]]
 name = "rameau_types"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "rameau_unison"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rameau_playback",
  "rameau_soundfont",
@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "rameau_wav"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rameau_clip",
 ]

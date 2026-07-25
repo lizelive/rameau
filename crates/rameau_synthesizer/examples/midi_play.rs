@@ -10,8 +10,15 @@
 //! cargo run -p rameau_synthesizer --example midi_play -- song.mid assets/FluidR3Mono_GM.sf3
 //! ```
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "this is a command-line program; reporting progress and \n              errors on the standard streams is its interface"
+)]
+
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use core::time::Duration;
+use std::time::Instant;
 
 use rameau_kira::Kira;
 use rameau_midi::smf::Smf;
@@ -36,7 +43,7 @@ fn main() {
     }
 }
 
-fn run(midi_path: &str, sf_arg: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn run(midi_path: &str, sf_arg: Option<&str>) -> Result<(), Box<dyn core::error::Error>> {
     // Open the audio device first; the SoundFont is decoded into kira clips.
     let mut backend = Kira::new()?;
 
@@ -81,7 +88,7 @@ fn run(midi_path: &str, sf_arg: Option<&str>) -> Result<(), Box<dyn std::error::
 fn load_soundfont(
     backend: &mut Kira,
     arg: Option<&str>,
-) -> Result<SoundFont<<Kira as rameau_playback::AudioPlayback>::Clip>, Box<dyn std::error::Error>> {
+) -> Result<SoundFont<<Kira as rameau_playback::AudioPlayback>::Clip>, Box<dyn core::error::Error>> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(arg) = arg {
         candidates.push(PathBuf::from(arg));
@@ -90,7 +97,7 @@ fn load_soundfont(
     candidates.push(assets.join("FluidR3Mono_GM.sf3"));
     candidates.push(assets.join("Unison.SF2"));
 
-    let mut last_err: Option<Box<dyn std::error::Error>> = None;
+    let mut last_err: Option<Box<dyn core::error::Error>> = None;
     for path in candidates {
         if !path.exists() {
             continue;

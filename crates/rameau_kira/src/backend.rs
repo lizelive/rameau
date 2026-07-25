@@ -1,8 +1,9 @@
 //! The [`Kira`] real-time [`AudioPlayback`] backend.
 
 use std::io::Cursor;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use alloc::sync::Arc;
+use core::time::Duration;
+use std::time::Instant;
 
 use kira::backend::DefaultBackend;
 use kira::sound::PlaybackPosition;
@@ -31,6 +32,11 @@ impl Kira {
     ///
     /// The main track is given a generous voice capacity so that dense MIDI
     /// (many overlapping notes, plus release tails) does not overflow it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Backend`] if no default audio device is
+    /// available or kira could not start its mixer.
     pub fn new() -> Result<Self, PlaybackError> {
         let settings = AudioManagerSettings {
             main_track_builder: MainTrackBuilder::new().sound_capacity(1024),

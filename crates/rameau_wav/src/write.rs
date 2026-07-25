@@ -15,6 +15,10 @@ const BLOCK_ALIGN: u16 = NUM_CHANNELS * (BITS_PER_SAMPLE / 8);
 ///
 /// The writer is not internally buffered; wrap it in a [`BufWriter`] (or use
 /// [`save`], which does) if it performs syscalls per write.
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] produced while writing to `writer`.
 pub fn write<W, C>(writer: &mut W, clip: &C) -> io::Result<()>
 where
     W: Write,
@@ -52,6 +56,10 @@ where
 }
 
 /// Saves `clip` to `path` as a 16-bit mono PCM WAV file.
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] from creating `path` or writing to it.
 pub fn save<C>(clip: &C, path: impl AsRef<Path>) -> io::Result<()>
 where
     C: AudioClip<Value = i16> + ?Sized,

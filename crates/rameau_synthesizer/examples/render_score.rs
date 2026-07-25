@@ -9,6 +9,13 @@
 //! cargo run -p rameau_synthesizer --example render_score -- assets/FluidR3Mono_GM.sf3 out.wav
 //! ```
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::expect_used,
+    reason = "this is a command-line program; reporting progress and \n              errors on the standard streams is its interface"
+)]
+
 use std::path::PathBuf;
 
 use rameau_clip::Clip;
@@ -68,7 +75,8 @@ fn main() {
         .data
         .chunks_exact(2)
         .map(|lr| {
-            let m = (lr[0] + lr[1]) * 0.5 * norm;
+            let [l, r] = lr else { return 0 };
+            let m = (l + r) * 0.5 * norm;
             (m.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
         })
         .collect();

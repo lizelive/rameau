@@ -50,6 +50,11 @@ pub trait Playback {
     ///
     /// Playback continues until the returned [`Stream`](Self::Stream) is
     /// dropped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`](Self::Error) if no output device is available or the
+    /// device rejected `config`.
     fn open<F>(&self, config: PlaybackConfig, callback: F) -> Result<Self::Stream, Self::Error>
     where
         F: FnMut(&mut [f32]) + Send + 'static;

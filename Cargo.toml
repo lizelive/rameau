@@ -11,12 +11,12 @@ description = "SoundFont-based MIDI playback behind a high-level MusicEngine"
 exclude = ["assets"]
 
 [dependencies]
-rameau_kira = { path = "crates/rameau_kira", version = "0.1.0" }
-rameau_midi = { path = "crates/rameau_midi", version = "0.1.0" }
-rameau_playback = { path = "crates/rameau_playback", version = "0.1.0" }
-rameau_soundfont = { path = "crates/rameau_soundfont", version = "0.1.0" }
-rameau_synthesizer = { path = "crates/rameau_synthesizer", version = "0.1.0" }
-rameau_unison = { path = "crates/rameau_unison", version = "0.1.0", optional = true }
+rameau_kira = { path = "crates/rameau_kira", version = "0.2.0" }
+rameau_midi = { path = "crates/rameau_midi", version = "0.2.0" }
+rameau_playback = { path = "crates/rameau_playback", version = "0.2.0" }
+rameau_soundfont = { path = "crates/rameau_soundfont", version = "0.2.0" }
+rameau_synthesizer = { path = "crates/rameau_synthesizer", version = "0.2.0" }
+rameau_unison = { path = "crates/rameau_unison", version = "0.2.0", optional = true }
 
 [features]
 default = []
@@ -29,15 +29,58 @@ unison = ["dep:rameau_unison"]
 name = "play_unison"
 required-features = ["unison"]
 
+[lints]
+workspace = true
+
 [workspace]
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/lizelive/rameau"
 homepage = "https://github.com/lizelive/rameau"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+todo = "warn"
+panic = "deny"
+panic_in_result_fn = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+unimplemented = "deny"
+missing_errors_doc = "deny"
+missing_panics_doc = "deny"
+missing_safety_doc = "deny"
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+allow_attributes_without_reason = "deny"
+unnecessary_safety_comment = "deny"
+unreachable = "deny"
+empty_loop = "deny"
+needless_borrow = "deny"
+needless_pass_by_value = "deny"
+large_enum_variant = "deny"
+large_stack_arrays = "deny"
+alloc_instead_of_core = "deny"
+std_instead_of_core = "deny"
+std_instead_of_alloc = "deny"
+inefficient_to_string = "deny"
+map_clone = "deny"
+map_collect_result_unit = "deny"
+slow_vector_initialization = "deny"
+redundant_clone = "deny"
+match_wildcard_for_single_variants = "deny"
+indexing_slicing = "deny"
+match_same_arms = "deny"
+bool_comparison = "deny"
+let_unit_value = "deny"
 
 # The Ogg/Vorbis codecs are C libraries compiled through `cc`, and are unusably
 # slow at the debug default of `opt-level = 0` — converting a 655-sample bank

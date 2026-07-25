@@ -180,13 +180,21 @@ impl<P: AudioPlayback> Synthesizer<P> {
 
     /// Renders the backend's output offline into `clip` (interleaved stereo).
     ///
-    /// Forwards to [`AudioPlayback::render`]; real-time-only backends return
-    /// [`PlaybackError::Unsupported`].
+    /// Forwards to [`AudioPlayback::render`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Unsupported`] from real-time-only backends.
     pub fn render(&mut self, clip: &mut impl AudioClip<Value = f32>) -> Result<(), PlaybackError> {
         self.backend.render(clip)
     }
 
     /// Applies a sequence of timestamped events in order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`PlaybackError`] any event produced, leaving the
+    /// remaining events unapplied.
     pub fn play<I>(&mut self, events: I) -> Result<(), PlaybackError>
     where
         I: IntoIterator<Item = (Timestamp, MidiEvent)>,
@@ -198,8 +206,12 @@ impl<P: AudioPlayback> Synthesizer<P> {
     }
 
     /// Stops every voice immediately and resets controllers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError`] if the backend failed to stop a voice.
     pub fn reset(&mut self, when: Timestamp) -> Result<(), PlaybackError> {
-        for mut v in std::mem::take(&mut self.voices) {
+        for mut v in core::mem::take(&mut self.voices) {
             self.backend.stop(when, &mut v.handle)?;
         }
         self.channels = [ChannelState::default(); 16];
@@ -207,6 +219,11 @@ impl<P: AudioPlayback> Synthesizer<P> {
     }
 
     /// Applies a single MIDI event at time `when`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError`] if the backend failed to start, update or
+    /// stop a voice while applying the event.
     pub fn handle(&mut self, when: Timestamp, event: MidiEvent) -> Result<(), PlaybackError> {
         match event {
             MidiEvent::NoteOn { channel, key, vel } if vel > 0 => {
@@ -288,9 +305,21 @@ impl<P: AudioPlayback> Synthesizer<P> {
         Ok(())
     }
 
+    /// The state of `channel`, masked into the 16 MIDI channels.
+    ///
+    /// The mask already confines the index to the array; reading through `get`
+    /// keeps that guarantee checked instead of assumed.
+    #[inline]
+    fn channel_state(&self, channel: u8) -> ChannelState {
+        self.channels
+            .get(channel as usize & 15)
+            .copied()
+            .unwrap_or_default()
+    }
+
     /// Pushes the current channel state to every gated voice on `channel`.
     fn update_channel(&mut self, when: Timestamp, channel: u8) -> Result<(), PlaybackError> {
-        let chan = self.channels[channel as usize & 15];
+        let chan = self.channel_state(channel);
         for v in &mut self.voices {
             if v.channel == channel {
                 let params = v.params(&chan);
@@ -303,7 +332,7 @@ impl<P: AudioPlayback> Synthesizer<P> {
     /// Stops and forgets every voice on `channel`.
     fn stop_channel(&mut self, when: Timestamp, channel: u8) -> Result<(), PlaybackError> {
         let mut kept = Vec::with_capacity(self.voices.len());
-        for mut v in std::mem::take(&mut self.voices) {
+        for mut v in core::mem::take(&mut self.voices) {
             if v.channel == channel {
                 self.backend.stop(when, &mut v.handle)?;
             } else {
@@ -317,7 +346,7 @@ impl<P: AudioPlayback> Synthesizer<P> {
     /// Releases voices held by the sustain pedal on `channel`.
     fn release_pedal(&mut self, when: Timestamp, channel: u8) -> Result<(), PlaybackError> {
         let mut kept = Vec::with_capacity(self.voices.len());
-        for mut v in std::mem::take(&mut self.voices) {
+        for mut v in core::mem::take(&mut self.voices) {
             if v.channel == channel && v.held_by_pedal {
                 self.backend.stop(when, &mut v.handle)?;
             } else {
@@ -336,7 +365,7 @@ impl<P: AudioPlayback> Synthesizer<P> {
             .unwrap_or(false);
 
         let mut kept = Vec::with_capacity(self.voices.len());
-        for mut v in std::mem::take(&mut self.voices) {
+        for mut v in core::mem::take(&mut self.voices) {
             if v.channel == channel && v.key == key && !v.held_by_pedal {
                 if sustained {
                     v.held_by_pedal = true;
@@ -363,7 +392,7 @@ impl<P: AudioPlayback> Synthesizer<P> {
         if resolved.is_empty() {
             return Ok(());
         }
-        let chan = self.channels[channel as usize & 15];
+        let chan = self.channel_state(channel);
 
         for r in resolved {
             // Exclusive class: cut other voices of the same class on this channel.
@@ -374,8 +403,12 @@ impl<P: AudioPlayback> Synthesizer<P> {
 
             let params = params_of(r.base_pitch, vel, r.att_gain, r.zone_pan, &chan);
             // Disjoint field borrows: `clip` reads `soundfont`, `start` takes
-            // `&mut backend`.
-            let clip = &self.soundfont.samples[r.sample_index].clip;
+            // `&mut backend`. The index came from the bank's own zones, so a
+            // miss means a malformed bank — skip that voice rather than panic.
+            let Some(sample) = self.soundfont.samples.get(r.sample_index) else {
+                continue;
+            };
+            let clip = &sample.clip;
             let handle = self
                 .backend
                 .start(when, clip, params, r.loop_region.clone())?;
@@ -403,7 +436,7 @@ impl<P: AudioPlayback> Synthesizer<P> {
         class: i32,
     ) -> Result<(), PlaybackError> {
         let mut kept = Vec::with_capacity(self.voices.len());
-        for mut v in std::mem::take(&mut self.voices) {
+        for mut v in core::mem::take(&mut self.voices) {
             if v.channel == channel && v.exclusive_class == class {
                 self.backend.stop(when, &mut v.handle)?;
             } else {
@@ -427,7 +460,7 @@ impl<P: AudioPlayback> Synthesizer<P> {
     /// Resolves a note-on into one [`Resolved`] per matching sample zone.
     fn resolve_voices(&self, channel: u8, key: u8, vel: u8) -> Vec<Resolved> {
         let sf = &self.soundfont;
-        let chan = &self.channels[channel as usize & 15];
+        let chan = &self.channel_state(channel);
         let bank = if channel == DRUM_CHANNEL {
             DRUM_BANK
         } else {
@@ -443,7 +476,11 @@ impl<P: AudioPlayback> Synthesizer<P> {
             return Vec::new();
         };
 
-        let preset = &sf.presets[preset_idx];
+        // The index comes from `preset_index`, which was built from this same
+        // bank, so a miss means the bank changed underneath us.
+        let Some(preset) = sf.presets.get(preset_idx) else {
+            return Vec::new();
+        };
         let (preset_global, preset_local) = split_global(&preset.zones, G::INSTRUMENT);
 
         let mut out = Vec::new();
@@ -509,8 +546,8 @@ fn is_playable<C>(sample: &Sample<C>) -> bool {
 
 /// Splits a zone list into its optional leading global zone and the rest.
 fn split_global(zones: &[Zone], terminal: G) -> (Option<&Zone>, &[Zone]) {
-    match zones.first() {
-        Some(first) if gens::index_of(first, terminal).is_none() => (Some(first), &zones[1..]),
+    match zones.split_first() {
+        Some((first, rest)) if gens::index_of(first, terminal).is_none() => (Some(first), rest),
         _ => (None, zones),
     }
 }

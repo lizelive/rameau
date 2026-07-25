@@ -26,8 +26,11 @@ use rameau_clip::AudioClip;
 /// Backends without spatial audio use only `x`, as a stereo pan in `-1.0..=1.0`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vec3 {
+    /// Left/right axis; negative is left. Doubles as a stereo pan.
     pub x: f32,
+    /// Up/down axis; negative is down.
     pub y: f32,
+    /// Front/back axis; negative is behind the listener.
     pub z: f32,
 }
 
@@ -98,7 +101,7 @@ impl core::fmt::Display for PlaybackError {
     }
 }
 
-impl std::error::Error for PlaybackError {}
+impl core::error::Error for PlaybackError {}
 
 /// A sample-playback engine: a source of clips and sounding voices.
 ///
@@ -110,6 +113,11 @@ pub trait AudioPlayback {
     type Playback;
 
     /// Builds a clip from mono 16-bit PCM at `sample_rate` Hz.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Backend`] if the backend cannot allocate or
+    /// register the clip.
     fn clip_from_pcm(
         &mut self,
         samples: &[i16],
@@ -118,14 +126,22 @@ pub trait AudioPlayback {
 
     /// Builds a clip from the bytes of a single Ogg/Vorbis stream.
     ///
-    /// Backends without a Vorbis decoder return
-    /// [`PlaybackError::Unsupported`]; callers should fall back to decoding to
-    /// PCM and using [`clip_from_pcm`](Self::clip_from_pcm).
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Unsupported`] from backends with no Vorbis
+    /// decoder — callers should fall back to decoding to PCM and using
+    /// [`clip_from_pcm`](Self::clip_from_pcm) — or [`PlaybackError::Decode`]
+    /// if the stream is malformed.
     fn clip_from_vorbis(&mut self, ogg: &[u8]) -> Result<Self::Clip, PlaybackError>;
 
     /// Starts `clip` as a new voice and returns a handle to it.
     ///
     /// `loop_region`, when set, makes playback loop over that frame range.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Backend`] if the voice could not be started,
+    /// for example when the engine is out of voice slots.
     fn start(
         &mut self,
         when: Timestamp,
@@ -135,6 +151,11 @@ pub trait AudioPlayback {
     ) -> Result<Self::Playback, PlaybackError>;
 
     /// Updates the live parameters of an existing voice.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Backend`] if the engine rejected the update,
+    /// for example when the voice has already finished.
     fn update(
         &mut self,
         when: Timestamp,
@@ -143,6 +164,10 @@ pub trait AudioPlayback {
     ) -> Result<(), PlaybackError>;
 
     /// Stops a voice (releasing it, with any backend fade-out).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Backend`] if the engine rejected the stop.
     fn stop(
         &mut self,
         when: Timestamp,
@@ -152,7 +177,11 @@ pub trait AudioPlayback {
     /// Renders the engine's current output offline into `clip`.
     ///
     /// `clip` is interpreted as interleaved stereo `f32` (its length is
-    /// `2 * frames`). Real-time-only backends return
-    /// [`PlaybackError::Unsupported`].
+    /// `2 * frames`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlaybackError::Unsupported`] from real-time-only backends,
+    /// which cannot render offline.
     fn render(&mut self, clip: &mut dyn AudioClip<Value = f32>) -> Result<(), PlaybackError>;
 }
