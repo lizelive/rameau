@@ -312,6 +312,35 @@ fn parse_track(data: &[u8]) -> Result<Track, MidiError> {
 
 /// Decode a channel message whose `status` byte is known. `first` is the
 /// already-consumed first data byte when running status is in effect.
+impl MidiEvent {
+    /// Decodes one complete channel message from a live MIDI stream.
+    ///
+    /// This is the counterpart to file parsing: MIDI drivers hand over whole
+    /// messages with an explicit status byte, so unlike a track there is no
+    /// running status to carry between calls.
+    ///
+    /// System messages (`0xF0`–`0xFF`: sysex, clock, active sensing) are not
+    /// channel events and return [`MidiError::BadValue`]. A live input loop
+    /// normally ignores errors from this function, which skips them.
+    ///
+    /// ```
+    /// use rameau_midi::event::MidiEvent;
+    ///
+    /// let ev = MidiEvent::from_bytes(&[0x90, 60, 100]).unwrap();
+    /// assert_eq!(ev, MidiEvent::NoteOn { channel: 0, key: 60, vel: 100 });
+    /// ```
+    pub fn from_bytes(bytes: &[u8]) -> Result<MidiEvent, MidiError> {
+        let (&status, rest) = bytes.split_first().ok_or(MidiError::UnexpectedEof)?;
+        if status < 0x80 {
+            // A data byte where a status byte belongs: running status, which a
+            // live stream does not use.
+            return Err(MidiError::BadValue);
+        }
+        let mut r = Reader::new(rest);
+        parse_channel(&mut r, status, None)
+    }
+}
+
 fn parse_channel(
     r: &mut Reader,
     status: u8,
@@ -528,5 +557,78 @@ mod tests {
         // 0x81 0x00 == 128
         let mut r = Reader::new(&[0x81, 0x00]);
         assert_eq!(r.vlq().unwrap(), 128);
+    }
+
+    #[test]
+    fn from_bytes_decodes_channel_messages() {
+        let cases: &[(&[u8], MidiEvent)] = &[
+            (
+                &[0x90, 60, 100],
+                MidiEvent::NoteOn {
+                    channel: 0,
+                    key: 60,
+                    vel: 100,
+                },
+            ),
+            (
+                &[0x85, 64, 0],
+                MidiEvent::NoteOff {
+                    channel: 5,
+                    key: 64,
+                    vel: 0,
+                },
+            ),
+            (
+                &[0xB0, 64, 127],
+                MidiEvent::ControlChange {
+                    channel: 0,
+                    ctrl: 64,
+                    value: 127,
+                },
+            ),
+            (
+                &[0xC2, 40],
+                MidiEvent::ProgramChange {
+                    channel: 2,
+                    program: MidiProgram::from(40),
+                },
+            ),
+            (&[0xD1, 90], MidiEvent::ChannelPressure { channel: 1, value: 90 }),
+            (
+                &[0xE0, 0x00, 0x40],
+                MidiEvent::PitchBend {
+                    channel: 0,
+                    value: 8192,
+                },
+            ),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(&MidiEvent::from_bytes(bytes).unwrap(), want, "{bytes:02X?}");
+        }
+    }
+
+    #[test]
+    fn from_bytes_decodes_channel_mode_messages() {
+        // Controllers 120/123 are channel-mode messages, not control changes.
+        assert_eq!(
+            MidiEvent::from_bytes(&[0xB3, 123, 0]).unwrap(),
+            MidiEvent::AllNotesOff { channel: 3 }
+        );
+        assert_eq!(
+            MidiEvent::from_bytes(&[0xB3, 120, 0]).unwrap(),
+            MidiEvent::AllSoundOff { channel: 3 }
+        );
+    }
+
+    #[test]
+    fn from_bytes_rejects_what_a_live_stream_should_skip() {
+        // Empty, truncated, system messages, and running status (no status byte)
+        // must all be errors so an input loop can simply ignore them.
+        assert!(MidiEvent::from_bytes(&[]).is_err());
+        assert!(MidiEvent::from_bytes(&[0x90, 60]).is_err(), "truncated note-on");
+        assert!(MidiEvent::from_bytes(&[0xF0, 0x7E]).is_err(), "sysex");
+        assert!(MidiEvent::from_bytes(&[0xF8]).is_err(), "clock");
+        assert!(MidiEvent::from_bytes(&[0xFE]).is_err(), "active sensing");
+        assert!(MidiEvent::from_bytes(&[60, 100]).is_err(), "running status");
     }
 }

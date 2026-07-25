@@ -59,6 +59,20 @@ impl Envelope {
         self.stage == Stage::Done
     }
 
+    /// Whether the envelope is releasing or already done.
+    pub fn is_releasing(&self) -> bool {
+        matches!(self.stage, Stage::Release | Stage::Done)
+    }
+
+    /// Retimes the release segment to `release` seconds at `sample_rate` Hz.
+    ///
+    /// Voice stealing uses this to fade a voice out quickly instead of dropping
+    /// it mid-waveform, which would click.
+    pub fn set_release(&mut self, release: f32, sample_rate: f32) {
+        let samples = (release.max(0.0) * sample_rate).round() as u32;
+        self.release_rate = exp_rate(samples, 1e-4);
+    }
+
     /// Advances to the release stage from the current level.
     pub fn release(&mut self) {
         if self.stage != Stage::Done {

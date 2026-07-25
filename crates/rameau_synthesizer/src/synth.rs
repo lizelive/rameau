@@ -94,6 +94,17 @@ impl<P: AudioPlayback> Live<P> {
     }
 }
 
+/// Converts a note-on velocity to a linear gain.
+///
+/// The SoundFont spec maps velocity onto *attenuation in decibels*, not onto
+/// linear amplitude. Squaring the ratio approximates that curve closely enough,
+/// and it is what makes soft playing actually sound soft: a linear map leaves
+/// low velocities far too loud, so every note arrives at much the same level.
+fn velocity_gain(vel: u8) -> f32 {
+    let ratio = vel as f32 / 127.0;
+    ratio * ratio
+}
+
 /// Folds a voice's static parameters with live channel state.
 fn params_of(
     base_pitch: f32,
@@ -104,7 +115,7 @@ fn params_of(
 ) -> VoiceParams {
     VoiceParams {
         pitch: base_pitch + chan.bend_semitones(),
-        volume: att_gain * (vel as f32 / 127.0) * chan.gain(),
+        volume: att_gain * velocity_gain(vel) * chan.gain(),
         position: Vec3::pan((zone_pan + chan.pan_unit()).clamp(-1.0, 1.0)),
         velocity: Vec3::default(),
     }
@@ -644,6 +655,22 @@ mod tests {
             synth.render(&mut block).unwrap();
         }
         assert_eq!(synth.backend().active_voices(), 0);
+    }
+
+    #[test]
+    fn velocity_follows_a_decibel_shaped_curve() {
+        // Full velocity is unattenuated, silence is silent, and a mid velocity
+        // sits well below the linear ratio it would have had before.
+        assert!((velocity_gain(127) - 1.0).abs() < 1e-6);
+        assert_eq!(velocity_gain(0), 0.0);
+
+        let mid = velocity_gain(64);
+        let linear = 64.0 / 127.0;
+        assert!(
+            mid < linear * 0.6,
+            "mid velocity {mid} should be much quieter than the linear {linear}"
+        );
+        assert!(velocity_gain(32) < velocity_gain(64), "curve must be monotonic");
     }
 
     #[test]

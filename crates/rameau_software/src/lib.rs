@@ -13,9 +13,16 @@
 //!
 //! Per-voice spatial parameters degrade gracefully: a `Vec3` position collapses
 //! to a stereo pan (its `x`), and velocity (Doppler) is ignored.
+//!
+//! The mixer's output stage gives the summed voices headroom and runs them
+//! through a brickwall [`Limiter`], and a voice cap steals the oldest sounding
+//! voice rather than letting held notes accumulate without limit. Both are on by
+//! default; `Software::with_limiter(None)` restores a raw linear sum.
 
 mod backend;
 mod envelope;
+mod limiter;
 mod voice;
 
 pub use backend::{Handle, Software};
+pub use limiter::Limiter;

@@ -4,19 +4,40 @@
 
 The `interactive` example sounds bad, for two independent reasons.
 
-**The signal path distorts.** `Software::render` sums voices straight into the
-output buffer with no headroom and no limit, and the example copies that buffer
-to the device unchanged. A three-note chord plus a bass line, across presets
-whose zones each contribute several voices, exceeds ±1.0 and hard-clips at the
-device. Nothing bounds voice count either: `resolve_voices` returns an unbounded
-`Vec`, so held notes accumulate without limit. `render_score.rs` already
-peak-normalises its output, working around the same defect downstream.
+**The signal path is unbounded.** `Software::render` sums voices straight into
+the output buffer with no limit, and the example copies that buffer to the
+device unchanged. Nothing bounds voice count either: `resolve_voices` returns an
+unbounded `Vec`, so held notes accumulate without limit.
 
-**The demo is not an instrument.** Input is line-buffered stdin, so notes fire in
-typed bursts at a fixed 0.4 s gate with no sustain and no dynamics. The mapping
-is diatonic only, so black keys cannot be played at all. A square-wave lead
-(program 80) sits over a looping I-V-vi-IV backing score, whose bass plays on
-channel 2 — a channel that never receives a program change.
+Measured against `FluidR3Mono_GM.sf3`, though, this is not what made the old demo
+sound bad. Ordinary playing stays comfortably clean:
+
+| case | peak, unlimited |
+| --- | --- |
+| 4-note piano chord | 0.261 |
+| 4-note square lead chord | 0.253 |
+| 4-note sawtooth lead chord | 0.476 |
+| 49 keys held, piano | 0.739 |
+| 49 keys held, square lead | **1.254** |
+
+Only the extreme case clips, and the old demo — a three-note chord, a bass note
+and a few typed notes — never came close to it. The limiter is therefore
+protection for a case this work newly makes reachable rather than a fix for
+audible distortion: wiring up the sustain pedal turns "hold the pedal and keep
+playing" into an ordinary gesture, and that is precisely the 1.254 case.
+
+Because normal levels have this much headroom already, the master gain defaults
+to unity. Pre-attenuating would throw away level the limiter never needed.
+
+**The demo is not an instrument**, and per the measurements above this is the
+whole of why it sounds bad. Input is line-buffered stdin, so every note in a
+typed line starts on the *same sample* and is cut off at exactly 0.4 s — a
+machine-gun staccato with no sustain and no dynamics. The mapping is diatonic
+only, so black keys cannot be played at all. Velocity reaches the voice as a
+linear `vel / 127`, which leaves soft notes far too loud and flattens everything
+to one level. A square-wave lead (program 80) sits over a looping I-V-vi-IV
+backing score, whose bass plays on channel 2 — a channel that never receives a
+program change, so it sounds on whatever preset happened to be default.
 
 ## Goals
 
@@ -46,11 +67,13 @@ gain drops, which is far below what hard clipping produces today.
 Signal order in `Software::render`: sum voices → `× master_gain` → limiter →
 output.
 
-Defaults: `master_gain` 0.7 (−3 dB of headroom, so the limiter is not engaged
-constantly — constant engagement is what makes a limiter pump), `threshold`
-0.95, release ~100 ms. Configurable through `with_master_gain` and
-`with_limiter`; `with_limiter(None)` restores the raw linear sum for callers who
-need bit-exact offline renders.
+Defaults: `master_gain` 1.0, `threshold` 0.95, release ~100 ms. Configurable
+through `with_master_gain` and `with_limiter`; `with_limiter(None)` restores the
+raw linear sum for callers who need bit-exact offline renders.
+
+With these defaults the limiter is transparent until it is needed: a four-note
+piano chord measures 0.261 either way, while the 49-key square lead case is
+pulled from 1.254 down to the 0.950 ceiling.
 
 The voice cap addresses the root cause rather than the symptom. `max_voices`
 defaults to 64. On `start`, if the number of *non-releasing* voices is at the

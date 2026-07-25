@@ -28,7 +28,8 @@ synth.handle(Timestamp::Now, MidiEvent::NoteOn { channel: 0, key: 60, vel: 100 }
 
 ## Examples
 
-- `interactive` — play notes from the keyboard.
+- `piano` — a playable keyboard piano, from a MIDI controller or the computer
+  keyboard.
 - `render_score` — render a score offline to audio.
 - `midi_play` — play a `.mid` file through the kira backend.
 

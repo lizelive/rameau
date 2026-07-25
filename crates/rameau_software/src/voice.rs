@@ -90,6 +90,23 @@ impl Voice {
         self.finished
     }
 
+    /// Whether the voice is already releasing (or scheduled to).
+    pub fn is_releasing(&self) -> bool {
+        self.release_frame.is_some() || self.env.is_releasing()
+    }
+
+    /// The absolute frame this voice became (or becomes) audible.
+    pub fn start_frame(&self) -> u64 {
+        self.start_frame
+    }
+
+    /// Steals this voice: retimes its release to `fade` seconds and starts it
+    /// immediately at `frame`, so the voice slot frees up without a click.
+    pub fn steal(&mut self, frame: u64, fade: f32, sample_rate: u32) {
+        self.env.set_release(fade, sample_rate as f32);
+        self.release_frame = Some(frame);
+    }
+
     /// Updates the live pitch/volume/pan of the voice.
     pub fn update(&mut self, pitch: f32, volume: f32, pan: f32) {
         self.increment = self.rate_ratio * 2f64.powf(pitch as f64 / 12.0);
