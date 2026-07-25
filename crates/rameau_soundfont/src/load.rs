@@ -630,12 +630,23 @@ fn build_samples<P: AudioPlayback>(
 }
 
 /// Decodes a single mono Ogg/Vorbis stream into 16-bit PCM.
+///
+/// Vorbis codes audio in blocks, so decoding the last packet yields more frames
+/// than the stream actually contains. The real length is the granule position
+/// of the final page, so the accumulated data is truncated to it; without this
+/// every sample would carry up to a block of spurious trailing audio.
 fn decode_vorbis(blob: &[u8]) -> Result<Vec<i16>, Error> {
     let mut reader = lewton::inside_ogg::OggStreamReader::new(Cursor::new(blob))?;
     let mut out = Vec::new();
+    let mut frames = 0u64;
     while let Some(packet) = reader.read_dec_packet_itl()? {
         out.extend_from_slice(&packet);
+        if let Some(absgp) = reader.get_last_absgp() {
+            frames = absgp;
+        }
     }
+    // A stream that decodes nothing leaves `frames` at 0 and truncates to empty.
+    out.truncate(frames as usize);
     Ok(out)
 }
 

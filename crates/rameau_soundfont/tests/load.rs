@@ -69,6 +69,48 @@ fn loads_sf3() {
     assert_well_formed(&sf);
 }
 
+/// Ogg/Vorbis codes audio in blocks, so decoding the final packet yields more
+/// frames than the stream actually contains. The true length is carried in the
+/// last page's granule position, and the decoded data must be truncated to it;
+/// simply concatenating packets leaves up to a block of spurious audio past
+/// where the sample should stop.
+///
+/// The expected lengths below are the granule positions of those samples in
+/// `FluidR3Mono_GM.sf3`, cross-checked against libvorbisfile — which agrees
+/// with the granule position on all 1037 compressed samples in that bank. Each
+/// of these samples is one that naive packet concatenation gets wrong, so this
+/// test fails if the truncation is ever dropped.
+#[test]
+fn sf3_samples_decode_to_their_true_length() {
+    // (sample name, true frame count, length naive concatenation would give)
+    const EXPECTED: &[(&str, usize, usize)] = &[
+        ("whistle", 16_449, 17_088),
+        ("harmnc_e5(L)", 16_760, 16_768),
+        ("harmon_c5(L)", 16_903, 17_024),
+        ("harmnc_g4(L)", 15_752, 15_872),
+        ("harmon_c2(L)", 16_908, 17_024),
+    ];
+
+    let sf = SoundFont::load_file(asset("FluidR3Mono_GM.sf3")).expect("load sf3");
+
+    for &(name, expected, over_read) in EXPECTED {
+        let sample = sf
+            .samples
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap_or_else(|| panic!("no sample named '{name}' in the bank"));
+
+        assert_eq!(
+            sample.clip.data.len(),
+            expected,
+            "sample '{name}' decoded to {} frames, expected {expected} \
+             (naive packet concatenation would give {over_read}); \
+             decoded audio is not truncated to the stream's granule position",
+            sample.clip.data.len(),
+        );
+    }
+}
+
 /// The two example banks load into the same shape of model despite using
 /// different sample storage (raw PCM vs. Ogg/Vorbis).
 #[test]
