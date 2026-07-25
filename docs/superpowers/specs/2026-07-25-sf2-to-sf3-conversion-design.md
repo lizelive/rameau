@@ -56,6 +56,48 @@ property of the inputs, not a guarantee of the design — the limitation is
 documented in the crate docs, and the integration test asserts structural
 equality after a reload so a regression would be caught.
 
+## Prerequisite: a decoder bug in `rameau_soundfont`
+
+Building the verification test surfaced an existing defect in the loader.
+`decode_vorbis` in `crates/rameau_soundfont/src/load.rs` accumulates every
+decoded Vorbis packet:
+
+```rust
+while let Some(packet) = reader.read_dec_packet_itl()? {
+    out.extend_from_slice(&packet);
+}
+```
+
+Vorbis codes audio in blocks, so the final block runs past the end of the real
+signal. The true length lives in the last page's granule position, and the
+accumulated packet data must be truncated to it. This code never does, so
+samples decode too long.
+
+Measured against `assets/FluidR3Mono_GM.sf3`:
+
+| | |
+| --- | --- |
+| Compressed samples | 1037 |
+| Decoded too long | **318 (31%)** |
+| Worst overshoot | **+1020 frames** |
+| Samples whose `loop_end` exceeds the true length | 0 |
+
+The last row explains why this has gone unnoticed: loop points always land
+inside the real audio, so looped playback and the existing `loads_sf3` test are
+unaffected. The damage is confined to a tail of extra audio on one-shot
+samples, past where they should stop.
+
+The fix is to truncate to `OggStreamReader::get_last_absgp()`, which was
+verified to reproduce the exact input length in all 24 encoder round-trip
+cases. Note that lewton *does* implement this trimming internally, but only for
+the final packet when the end-of-stream flag and its running granule
+bookkeeping line up; accumulating `read_dec_packet_itl()` output without
+consulting `get_last_absgp()` bypasses it.
+
+This is fixed first, as its own task, because the conversion round-trip cannot
+otherwise assert frame-count equality — the property that proves loop points
+survive.
+
 ## Structure
 
 New crate at `crates/rameau_soundfont_convert/`.
@@ -76,7 +118,8 @@ entry points in `lib.rs`.
 ### Public API
 
 ```rust
-/// Ogg/Vorbis VBR quality, -0.1 (smallest) to 1.0 (best). Default 0.5.
+/// Ogg/Vorbis VBR quality, clamped to libvorbis's -0.2 (smallest) ..= 1.0
+/// (best) range. Default 0.5.
 pub struct Quality(f32);
 
 /// Writes `sf` as a `.sf3` image into `out`.
@@ -125,9 +168,14 @@ range it occupies.
   self-delimiting.
 
 Vorbis is lossy in amplitude but not in *length*: libvorbis encodes the exact
-frame count in the final page's granule position, so a decoder returns the same
-number of frames it was given. Loop points therefore stay valid. The
-integration test asserts this rather than trusting it.
+frame count in the final page's granule position, so a correct decoder returns
+the same number of frames it was given. This was verified against the real
+encoder across 24 length/rate combinations — libvorbisfile returns the exact
+input length every time, including awkward cases like a 1-frame sample and
+lengths straddling the 1024-frame block size.
+
+Reading that length back correctly requires honouring the granule position,
+which is the subject of the prerequisite fix below.
 
 ### 2. Record arrays (`pdta`)
 
@@ -197,9 +245,8 @@ RIFF <size> sfbk
 
 The codec crates are C libraries compiled through `cc`, and are unusably slow
 at the default debug `opt-level = 0` — for a 655-sample bank that is the
-difference between a test that runs and a test that appears to hang. The
-workspace root gets per-package profile overrides so they are always built
-optimised, in every profile:
+difference between a test that runs and a test that appears to hang. They are
+always built optimised, in every profile:
 
 ```toml
 [profile.dev.package.vorbis_rs]
@@ -212,14 +259,24 @@ opt-level = 3
 opt-level = 3
 ```
 
+These overrides are **workspace-wide**, and must be. Cargo only honours
+`[profile.*]` in the root manifest of a workspace — the same table in a member
+crate is ignored with a warning — so `d:/source/rameau/Cargo.toml` is the only
+place they can live, and putting them there means they apply to every build of
+every member, no matter which crate the build was invoked from. A developer
+running `cargo test -p rameau_soundfont` gets the optimised decoder just as
+much as one running `cargo test` at the root.
+
 `lewton` is included because the verification test decodes the whole converted
-bank back through the existing loader.
+bank back through the existing loader, and because `rameau_soundfont`'s own
+existing `loads_sf3` test pays the same cost today.
 
 `cc` reads Cargo's per-package `OPT_LEVEL`, so this raises the optimisation
 level of the bundled C sources too, not just the Rust wrappers. `profile.test`
 and `profile.bench` inherit from `profile.dev`, so the overrides apply to test
-builds without being repeated. Exact package names are confirmed against
-`Cargo.lock` during implementation.
+builds without being repeated; `profile.release` is already `opt-level = 3`, so
+it needs no override. Exact package names are confirmed against `Cargo.lock`
+during implementation, and a member-manifest `[profile]` table is never added.
 
 ## Testing
 
