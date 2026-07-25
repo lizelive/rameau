@@ -48,20 +48,29 @@ pub(crate) struct Pdta {
 /// `regions` must be parallel to `sf.samples` — one entry per sample, giving
 /// its byte range in the encoded pool.
 pub(crate) fn build_pdta(sf: &SoundFont, regions: &[SampleRegion]) -> Result<Pdta, Error> {
-    let (phdr, pbag, pmod, pgen) = build_presets(&sf.presets)?;
-    let (inst, ibag, imod, igen) = build_instruments(&sf.instruments)?;
+    let presets = build_presets(&sf.presets)?;
+    let instruments = build_instruments(&sf.instruments)?;
 
     Ok(Pdta {
-        phdr,
-        pbag,
-        pmod,
-        pgen,
-        inst,
-        ibag,
-        imod,
-        igen,
+        phdr: presets.headers,
+        pbag: presets.zones.bags,
+        pmod: presets.zones.mods,
+        pgen: presets.zones.gens,
+        inst: instruments.headers,
+        ibag: instruments.zones.bags,
+        imod: instruments.zones.mods,
+        igen: instruments.zones.gens,
         shdr: build_shdr(sf, regions)?,
     })
+}
+
+/// A header array together with the zone arrays its records index into.
+///
+/// Presets and instruments have different header layouts but identical zone
+/// machinery, so both sides produce one of these.
+struct Hierarchy {
+    headers: Vec<u8>,
+    zones: Zones,
 }
 
 /// Accumulates the bag, generator and modulator arrays that the preset and
@@ -109,20 +118,20 @@ impl Zones {
     }
 
     /// Appends the terminal bag, generator and modulator records that bound the
-    /// last real zone, and yields the finished arrays.
-    fn finish(mut self) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), Error> {
+    /// last real zone.
+    fn finish(mut self) -> Result<Self, Error> {
         self.bags
             .extend_from_slice(&index(self.gens.len() / GEN_SIZE, "generators")?.to_le_bytes());
         self.bags
             .extend_from_slice(&index(self.mods.len() / MOD_SIZE, "modulators")?.to_le_bytes());
         self.gens.extend_from_slice(&[0u8; GEN_SIZE]);
         self.mods.extend_from_slice(&[0u8; MOD_SIZE]);
-        Ok((self.bags, self.mods, self.gens))
+        Ok(self)
     }
 }
 
 /// Builds `phdr` plus the preset-side bag, modulator and generator arrays.
-fn build_presets(presets: &[Preset]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>), Error> {
+fn build_presets(presets: &[Preset]) -> Result<Hierarchy, Error> {
     let mut phdr = Vec::with_capacity((presets.len() + 1) * PHDR_SIZE);
     let mut zones = Zones::default();
 
@@ -146,14 +155,14 @@ fn build_presets(presets: &[Preset]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u
     phdr.extend_from_slice(&zones.next_bag()?.to_le_bytes());
     phdr.extend_from_slice(&[0u8; 12]); // library, genre, morphology
 
-    let (pbag, pmod, pgen) = zones.finish()?;
-    Ok((phdr, pbag, pmod, pgen))
+    Ok(Hierarchy {
+        headers: phdr,
+        zones: zones.finish()?,
+    })
 }
 
 /// Builds `inst` plus the instrument-side bag, modulator and generator arrays.
-fn build_instruments(
-    instruments: &[Instrument],
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>), Error> {
+fn build_instruments(instruments: &[Instrument]) -> Result<Hierarchy, Error> {
     let mut inst = Vec::with_capacity((instruments.len() + 1) * INST_SIZE);
     let mut zones = Zones::default();
 
@@ -168,8 +177,10 @@ fn build_instruments(
     inst.extend_from_slice(&name20("EOI"));
     inst.extend_from_slice(&zones.next_bag()?.to_le_bytes());
 
-    let (ibag, imod, igen) = zones.finish()?;
-    Ok((inst, ibag, imod, igen))
+    Ok(Hierarchy {
+        headers: inst,
+        zones: zones.finish()?,
+    })
 }
 
 /// Builds `shdr`, addressing the encoded pool the `.sf3` way.
@@ -222,12 +233,16 @@ fn kind_bits(kind: SampleType) -> u16 {
     }
 }
 
-/// A fixed 20-byte name field: truncated if too long, always NUL-terminated,
-/// zero-padded to the full width.
+/// A fixed 20-byte name field: truncated if too long, zero-padded otherwise.
+///
+/// A name shorter than the field is NUL-terminated by the padding. A name that
+/// fills all 20 bytes is written without a terminator, which is what real banks
+/// do — `Unison.SF2` has presets named exactly "ACOUSTIC GRAND PIANO" — and
+/// what the loader expects, reading to the first NUL or the end of the field.
 fn name20(name: &str) -> [u8; 20] {
     let mut out = [0u8; 20];
     // Truncate on a character boundary so multi-byte UTF-8 is never split.
-    let mut end = name.len().min(19);
+    let mut end = name.len().min(20);
     while end > 0 && !name.is_char_boundary(end) {
         end -= 1;
     }
@@ -391,26 +406,48 @@ mod tests {
     }
 
     #[test]
-    fn names_are_truncated_to_twenty_bytes_and_nul_terminated() {
+    fn short_names_are_nul_terminated() {
+        let p = build_pdta(&bank(), &regions()).unwrap();
+        assert_eq!(&p.phdr[..5], b"Piano");
+        assert!(
+            p.phdr[5..20].iter().all(|&b| b == 0),
+            "the rest of the field must be zero-padded"
+        );
+    }
+
+    /// Real banks use the full 20-byte field with no terminator — `Unison.SF2`
+    /// has presets named exactly "ACOUSTIC GRAND PIANO". Reserving a byte for a
+    /// NUL would silently truncate every such name.
+    #[test]
+    fn names_may_fill_the_whole_twenty_byte_field() {
+        let mut sf = bank();
+        sf.presets[0].name = "ACOUSTIC GRAND PIANO".into();
+        assert_eq!(sf.presets[0].name.len(), 20);
+
+        let p = build_pdta(&sf, &regions()).unwrap();
+        assert_eq!(&p.phdr[..20], b"ACOUSTIC GRAND PIANO");
+    }
+
+    #[test]
+    fn over_long_names_are_truncated_to_the_field() {
         let mut sf = bank();
         sf.presets[0].name = "A very long preset name indeed".into();
         let p = build_pdta(&sf, &regions()).unwrap();
-        assert_eq!(&p.phdr[..19], b"A very long preset ");
-        assert_eq!(p.phdr[19], 0, "the 20th byte must be the NUL terminator");
+        assert_eq!(&p.phdr[..20], b"A very long preset n");
     }
 
-    /// A multi-byte character straddling the 19-byte cut must not be split into
+    /// A multi-byte character straddling the 20-byte cut must not be split into
     /// invalid UTF-8.
     #[test]
     fn truncation_respects_character_boundaries() {
         let mut sf = bank();
-        // 18 ASCII bytes, then a 2-byte character crossing the boundary.
-        sf.presets[0].name = format!("{}é", "x".repeat(18));
+        // 19 ASCII bytes, then a 2-byte character crossing the boundary.
+        sf.presets[0].name = format!("{}é", "x".repeat(19));
         let p = build_pdta(&sf, &regions()).unwrap();
         let name = &p.phdr[..20];
-        let end = name.iter().position(|&b| b == 0).unwrap();
+        let end = name.iter().position(|&b| b == 0).unwrap_or(20);
         std::str::from_utf8(&name[..end]).expect("truncated name must stay valid UTF-8");
-        assert_eq!(end, 18, "the split character should be dropped entirely");
+        assert_eq!(end, 19, "the split character should be dropped entirely");
     }
 
     /// The reserved preset fields are part of the model and must survive.

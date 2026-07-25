@@ -151,7 +151,7 @@ fn version_bytes(major: u16, minor: u16) -> Vec<u8> {
 fn zstr(s: &str) -> Vec<u8> {
     let mut v = s.as_bytes().to_vec();
     v.push(0);
-    if v.len() % 2 != 0 {
+    if !v.len().is_multiple_of(2) {
         v.push(0);
     }
     v
@@ -166,7 +166,7 @@ fn list(kind: &[u8; 4], chunks: &[(&[u8; 4], &Vec<u8>)]) -> Vec<u8> {
         body.extend_from_slice(&(data.len() as u32).to_le_bytes());
         body.extend_from_slice(data);
         // Chunks are word-aligned. The pad byte is not counted in the size.
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             body.push(0);
         }
     }

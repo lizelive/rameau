@@ -35,6 +35,7 @@ engine.play_midi(&song)?;
 | [`rameau_wav`](crates/rameau_wav) | 16-bit PCM WAV writer |
 | [`rameau_midi`](crates/rameau_midi) | MIDI types and Standard MIDI File parsing |
 | [`rameau_soundfont`](crates/rameau_soundfont) | SoundFont model and `.sf2`/`.sf3` loader |
+| [`rameau_soundfont_convert`](crates/rameau_soundfont_convert) | Convert `.sf2` banks to Ogg/Vorbis-compressed `.sf3` |
 | [`rameau_synthesizer`](crates/rameau_synthesizer) | SoundFont synthesizer driving a backend |
 | [`rameau_theory`](crates/rameau_theory) | Music theory primitives (placeholder) |
 | [`rameau_chords`](crates/rameau_chords) | Chord construction/recognition (placeholder) |
