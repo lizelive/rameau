@@ -1,0 +1,28 @@
+Licence for Unison.sf3
+======================
+
+`Unison.sf3` in this directory is a SoundFont bank. It is NOT covered by the
+AGPL-3.0-or-later licence that applies to the Rust source code of this crate
+and the rest of the `rameau` workspace.
+
+    Bank:    Unison
+    Licence: CC0-1.0 (Creative Commons Zero v1.0 Universal)
+    Source:  https://rkhive.com/new/new_banks/unison.zip
+
+The bank was converted from the original `Unison.SF2` to Ogg/Vorbis-compressed
+`.sf3` at quality 0.5 using this workspace's `rameau_soundfont_convert` crate.
+The conversion is lossy for sample audio; no other content was altered.
+
+
+CC0 1.0 Universal — summary
+---------------------------
+
+The person who associated a work with this deed has dedicated the work to the
+public domain by waiving all of their rights to the work worldwide under
+copyright law, including all related and neighboring rights, to the extent
+allowed by law.
+
+You can copy, modify, distribute and perform the work, even for commercial
+purposes, all without asking permission.
+
+Full text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
