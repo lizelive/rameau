@@ -1,6 +1,6 @@
 //! A single sounding voice in the software mixer.
 
-use alloc::sync::Arc;
+use std::sync::Arc;
 
 use rameau_clip::Clip;
 

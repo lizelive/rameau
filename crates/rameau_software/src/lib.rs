@@ -19,10 +19,13 @@
 //! voice rather than letting held notes accumulate without limit. Both are on by
 //! default; `Software::with_limiter(None)` restores a raw linear sum.
 
+#![allow(
+    clippy::std_instead_of_alloc,
+    reason = "this backend targets std. Naming allocation types through \
+              `alloc` would buy no portability and would cost an \
+              `extern crate alloc` declaration to do it"
+)]
 
-// Linked explicitly so that items needing only allocation can be named via
-// `alloc::`, keeping `std::` for what genuinely requires the platform.
-extern crate alloc;
 mod backend;
 mod envelope;
 mod limiter;

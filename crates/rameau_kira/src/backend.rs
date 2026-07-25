@@ -1,8 +1,8 @@
 //! The [`Kira`] real-time [`AudioPlayback`] backend.
 
-use std::io::Cursor;
-use alloc::sync::Arc;
 use core::time::Duration;
+use std::io::Cursor;
+use std::sync::Arc;
 use std::time::Instant;
 
 use kira::backend::DefaultBackend;

@@ -1,6 +1,6 @@
 //! The [`Software`] sample-mixing [`AudioPlayback`] backend.
 
-use alloc::sync::Arc;
+use std::sync::Arc;
 
 use rameau_clip::{AudioClip, Clip};
 use rameau_playback::{AudioPlayback, LoopRegion, PlaybackError, Timestamp, VoiceParams};
