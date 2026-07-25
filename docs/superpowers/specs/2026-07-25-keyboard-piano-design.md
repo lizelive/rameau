@@ -177,6 +177,40 @@ not require rewriting expectations.
 The example itself can only be verified by `cargo build --examples` plus manual
 play: `cargo test` does not run tests inside example targets.
 
+## Addendum: why nothing was audible at all
+
+The first build of the piano produced no sound, and instrumenting each boundary
+of the chain found a cause that predated this work entirely.
+
+Per-block measurements showed the audio callback executing in at most 101 µs
+while owing 5,333 µs of audio, and producing only 0.14 s of audio across 2.5 s
+of wall time. The callback was not slow — it was 50× faster than required. The
+device simply was not calling it.
+
+On Windows `tinyaudio` uses DirectSound, which runs a double buffer and signals
+its feed thread once per half. With `frames_per_buffer: 256` at 48 kHz that
+thread must wake every 5.3 ms, well inside Windows' ~10-16 ms scheduling
+granularity. It misses notifications, the buffer wraps over stale audio, and
+output arrives at a fraction of real time without any error being reported.
+
+A sweep confirmed the model, which says the half-buffer period must exceed
+about 10 ms — 480 frames at 48 kHz:
+
+| `frames_per_buffer` | period | audio produced per 2.5 s wall |
+| --- | --- | --- |
+| 256 | 5.3 ms | 0.14 s |
+| 384 | 8.0 ms | 0.51 s |
+| 512 | 10.7 ms | 2.53 s (real time) |
+| 768 | 16.0 ms | 2.53 s (real time) |
+
+The old `interactive` demo also used 256 frames, so it was starved in exactly
+the same way. This, not the mix, is why it "sounded horrible".
+
+Two changes follow. The demo moves to 512 frames. And `rameau_tinyaudio`
+rejects any buffer below `min_frames_per_buffer(sample_rate)` rather than
+opening a stream that silently starves — a loud failure is worth far more than
+a device that plays a twentieth of its audio.
+
 ## Decisions deliberately not taken
 
 - No lookahead limiter. It would need a delay buffer threaded through a render

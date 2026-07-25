@@ -48,11 +48,17 @@ fn main() {
     let config = PlaybackConfig {
         channels: 2,
         sample_rate: 48_000,
-        // ~5 ms blocks: low latency while staying comfortably real-time.
-        frames_per_buffer: 256,
+        // ~10.7 ms blocks. Low enough that playing feels immediate, and the
+        // shortest period the platform can actually schedule: anything smaller
+        // starves the device rather than reducing latency. See
+        // `rameau_tinyaudio::min_frames_per_buffer`.
+        frames_per_buffer: 512,
     };
 
-    let mut backend = Software::new(config.sample_rate);
+    // A single note measures about 0.064 peak through a GM bank and a four-note
+    // chord about 0.26, which is quiet to play against. Doubling brings normal
+    // playing to a comfortable level; the mixer's limiter catches the top end.
+    let mut backend = Software::new(config.sample_rate).with_master_gain(2.0);
     let soundfont = match load_soundfont(&mut backend, bank_path.as_deref()) {
         Ok(sf) => sf,
         Err(e) => {
