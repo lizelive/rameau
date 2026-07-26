@@ -1,134 +1,62 @@
-//! The real-time audio callback.
+//! Applying input commands to the synthesizer.
 //!
-//! The callback owns the clock: each block it drains whatever input has arrived,
-//! schedules it on the synth at a sample-accurate [`Timestamp::AtSeconds`], and
-//! renders the backend into the output buffer. Because the software backend's
-//! clock advances in lockstep with the callback, timing never drifts with buffer
-//! size.
+//! There is no render callback here. The kira backend owns its own audio
+//! thread, so a command is handed to the synth the instant it arrives and
+//! sounds immediately. That matters for playing: a callback-driven design has
+//! to batch the events that arrived since the last block and stamp them with
+//! one timestamp, which quantises every note onset to the block boundary.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::mpsc::Receiver;
-
-use rameau_clip::Clip;
 use rameau_midi::event::MidiEvent;
-use rameau_playback::Timestamp;
-use rameau_software::Software;
-use rameau_soundfont::SoundFont;
-use rameau_synthesizer::Synthesizer;
+use rameau_playback::{PlaybackError, Timestamp};
 
 use crate::input::Command;
 
 /// The MIDI channel the piano plays on.
 pub const CHANNEL: u8 = 0;
 
-type Backend = Software;
-type Bank = SoundFont<<Software as rameau_playback::AudioPlayback>::Clip>;
+/// The synthesizer type this demo drives.
+pub type Synth = rameau_synthesizer::Synthesizer<rameau_kira::Kira>;
 
-/// Peak level of the rendered output, in thousandths of full scale.
-///
-/// Shared with the audio thread so the caller can tell "the synth produced
-/// nothing" apart from "the synth produced audio the device did not play" —
-/// the two feel identical from the listener's chair.
-#[derive(Clone, Default)]
-pub struct PeakMeter(Arc<AtomicU32>);
-
-impl PeakMeter {
-    /// The loudest sample since the last read, in `0.0..` full scale.
-    pub fn take(&self) -> f32 {
-        self.0.swap(0, Ordering::Relaxed) as f32 / 1000.0
-    }
-
-    fn record(&self, buf: &[f32]) {
-        let peak = buf.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-        self.0.fetch_max((peak * 1000.0) as u32, Ordering::Relaxed);
-    }
-}
-
-/// Builds the render closure driving `synth` from `rx`.
-pub fn render_callback(
-    bank: Bank,
-    backend: Backend,
-    sample_rate: u32,
-    buffer_len: usize,
-    rx: Receiver<Command>,
-    program: u8,
-    meter: PeakMeter,
-) -> impl FnMut(&mut [f32]) {
-    let mut synth = Synthesizer::new(bank, backend, sample_rate);
-    let mut scratch = Clip::new(vec![0.0f32; buffer_len], sample_rate);
-    let mut clock: u64 = 0;
-    // Applied on the first block, once the synth is live on the audio thread.
-    let mut bootstrap = Some(MidiEvent::ProgramChange {
-        channel: CHANNEL,
-        program: program.into(),
-    });
-    move |buf: &mut [f32]| {
-        let block_start = clock;
-        let when = Timestamp::AtSeconds(block_start as f64 / sample_rate as f64);
-
-        if let Some(ev) = bootstrap.take() {
-            let _ = synth.handle(when, ev);
-        }
-
-        // Everything that arrived since the last block lands at its start. The
-        // resulting jitter is bounded by one buffer, well under the threshold
-        // where playing feels laggy.
-        while let Ok(cmd) = rx.try_recv() {
-            let (first, second) = events_for(cmd);
-            let _ = synth.handle(when, first);
-            if let Some(ev) = second {
-                let _ = synth.handle(when, ev);
-            }
-        }
-
-        scratch.data.resize(buf.len(), 0.0);
-        let _ = synth.render(&mut scratch);
-        buf.copy_from_slice(&scratch.data);
-        meter.record(buf);
-
-        clock = block_start + (buf.len() / 2) as u64;
-    }
-}
-
-/// The MIDI events a command expands to.
-///
-/// Returned as a pair rather than a `Vec` because this runs on the audio
-/// thread, where an allocation can block long enough to drop out.
-fn events_for(cmd: Command) -> (MidiEvent, Option<MidiEvent>) {
+/// Hands one command to the synth, to sound now.
+pub fn apply(synth: &mut Synth, cmd: Command) -> Result<(), PlaybackError> {
     let pedal = |value| MidiEvent::ControlChange {
         channel: CHANNEL,
         ctrl: 64,
         value,
     };
     match cmd {
-        Command::NoteOn { key, vel } => (
+        Command::NoteOn { key, vel } => synth.handle(
+            Timestamp::Now,
             MidiEvent::NoteOn {
                 channel: CHANNEL,
                 key,
                 vel,
             },
-            None,
         ),
-        Command::NoteOff { key } => (
+        Command::NoteOff { key } => synth.handle(
+            Timestamp::Now,
             MidiEvent::NoteOff {
                 channel: CHANNEL,
                 key,
                 vel: 0,
             },
-            None,
         ),
-        // The synth already implements CC64: it defers note-offs while the
-        // pedal is down and releases them together when it comes up.
-        Command::Sustain(down) => (pedal(if down { 127 } else { 0 }), None),
-        Command::Program(p) => (
+        // The synth implements CC64 itself: it defers note-offs while the pedal
+        // is down and releases them together when it comes up.
+        Command::Sustain(down) => synth.handle(Timestamp::Now, pedal(if down { 127 } else { 0 })),
+        Command::Program(p) => synth.handle(
+            Timestamp::Now,
             MidiEvent::ProgramChange {
                 channel: CHANNEL,
                 program: p.into(),
             },
-            None,
         ),
-        // Lift the pedal too, or notes it is holding survive the panic.
-        Command::Panic => (pedal(0), Some(MidiEvent::AllNotesOff { channel: CHANNEL })),
+        Command::Panic => {
+            // Lift the pedal too, or notes it is holding survive the panic.
+            synth.handle(Timestamp::Now, pedal(0))?;
+            synth.handle(Timestamp::Now, MidiEvent::AllNotesOff { channel: CHANNEL })
+        }
+        // Handled by the caller, which stops the loop.
+        Command::Quit => Ok(()),
     }
 }

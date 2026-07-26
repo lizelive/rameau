@@ -31,6 +31,8 @@ pub enum Command {
     Program(u8),
     /// All notes off, everywhere.
     Panic,
+    /// The keyboard loop has finished; stop the program.
+    Quit,
 }
 
 /// How long a held computer key sustains after its last auto-repeat, when the
@@ -544,5 +546,6 @@ pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
     }
 
     kb.all_off(tx);
+    let _ = tx.send(Command::Quit);
     Ok(())
 }

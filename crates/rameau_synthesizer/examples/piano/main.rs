@@ -4,6 +4,13 @@
 //! keyboard either way. Held keys sustain, the pedal works, and velocity and
 //! octave are adjustable, so this is an instrument rather than a demo reel.
 //!
+//! Built on [`rameau_kira::Kira`], the same backend as the `midi_play` demo:
+//! kira owns the audio thread, so an event handed to the synth sounds
+//! immediately. Interactive playing needs that. Driving a device callback by
+//! hand instead means batching the events that arrived since the last block
+//! and giving them one timestamp, which quantises every onset to the block
+//! boundary and audibly stiffens the timing.
+//!
 //! ```text
 //! cargo run -p rameau_synthesizer --example piano -- assets/FluidR3Mono_GM.sf3
 //! cargo run -p rameau_synthesizer --example piano -- bank.sf2 --midi "Keystation"
@@ -32,10 +39,10 @@ mod input;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use rameau_playback::{AudioPlayback, Playback, PlaybackConfig};
-use rameau_software::Software;
+use rameau_kira::Kira;
+use rameau_playback::AudioPlayback;
 use rameau_soundfont::SoundFont;
-use rameau_tinyaudio::TinyAudio;
+use rameau_synthesizer::Synthesizer;
 
 /// Acoustic Grand Piano.
 const DEFAULT_PROGRAM: u8 = 0;
@@ -55,27 +62,15 @@ fn main() {
     let midi_filter = flag_value(&args, "--midi");
     let bank_path = args.iter().find(|a| !a.starts_with("--")).cloned();
 
-    // ~21.3 ms blocks. Not the smallest that runs: the smallest that runs
-    // *without crackling*. Callback arrivals quantise to Windows' ~10 ms timer,
-    // so a 10.7 ms block beats against it — measured over 5 s, 512 frames saw
-    // gaps up to 43 ms against a 21 ms buffer and dropped 0.2% of blocks, in
-    // both debug and release. At 1024 each block spans two whole timer ticks
-    // and nothing arrived late. Overridable because the safe size is a property
-    // of the machine's scheduler, not of this program: if it still crackles,
-    // raise it. See also `rameau_tinyaudio::min_frames_per_buffer`.
-    let frames_per_buffer = flag_value(&args, "--buffer")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1024);
-    let config = PlaybackConfig {
-        channels: 2,
-        sample_rate: 48_000,
-        frames_per_buffer,
+    // Open the device first; the SoundFont is decoded into kira's clip type.
+    let mut backend = match Kira::new() {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("could not open the audio device: {e}");
+            std::process::exit(1);
+        }
     };
 
-    // A single note measures about 0.064 peak through a GM bank and a four-note
-    // chord about 0.26, which is quiet to play against. Doubling brings normal
-    // playing to a comfortable level; the mixer's limiter catches the top end.
-    let mut backend = Software::new(config.sample_rate).with_master_gain(2.0);
     let soundfont = match load_soundfont(&mut backend, bank_path.as_deref()) {
         Ok(sf) => sf,
         Err(e) => {
@@ -91,6 +86,11 @@ fn main() {
         soundfont.presets.len(),
         soundfont.samples.len()
     );
+
+    let mut synth = Synthesizer::new(soundfont, backend, 48_000);
+    if let Err(e) = audio::apply(&mut synth, input::Command::Program(DEFAULT_PROGRAM)) {
+        eprintln!("could not select the default instrument: {e}");
+    }
 
     let (tx, rx) = mpsc::channel();
 
@@ -110,64 +110,58 @@ fn main() {
         }
     };
 
-    let meter = audio::PeakMeter::default();
-    let render = audio::render_callback(
-        soundfont,
-        backend,
-        config.sample_rate,
-        config.buffer_len(),
-        rx,
-        DEFAULT_PROGRAM,
-        meter.clone(),
-    );
-
-    let _stream = match TinyAudio.open(config, render) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("could not open audio device: {e}");
-            std::process::exit(1);
-        }
-    };
-
     if args.iter().any(|a| a == "--test-tone") {
-        test_tone(&tx, &meter);
+        test_tone(&mut synth);
         return;
     }
 
     print_help();
-    // Raw mode is restored on the way out of this call, including on panic.
-    if let Err(e) = input::run_keyboard(&tx) {
-        eprintln!();
-        eprintln!("could not read the keyboard: {e}");
-        eprintln!("this needs a real terminal — not a pipe, task runner or IDE");
-        eprintln!("output pane. Run `--debug-input` to see what this one reports.");
+
+    // The keyboard runs on its own thread so this one can block on the channel
+    // and hand each command straight to the synth the moment it arrives —
+    // MIDI input and typing share the same path.
+    let keys = std::thread::spawn({
+        let tx = tx.clone();
+        move || {
+            if let Err(e) = input::run_keyboard(&tx) {
+                eprintln!();
+                eprintln!("could not read the keyboard: {e}");
+                eprintln!("this needs a real terminal — not a pipe, task runner or IDE");
+                eprintln!("output pane. Run `--debug-input` to see what this one reports.");
+                let _ = tx.send(input::Command::Quit);
+            }
+        }
+    });
+
+    for cmd in rx {
+        if matches!(cmd, input::Command::Quit) {
+            break;
+        }
+        if let Err(e) = audio::apply(&mut synth, cmd) {
+            eprintln!("audio error: {e}");
+        }
     }
+
+    // Joined so raw mode is restored before the process ends.
+    let _ = keys.join();
     println!("bye");
 }
 
 /// Plays a C major chord through the full audio path, with no keyboard
-/// involved, and reports the level that actually reached the device.
-///
-/// "I hear nothing" has two very different causes that feel identical: the
-/// synth produced silence, or it produced audio the device never played. The
-/// reported peak separates them — a healthy peak with no sound heard means the
-/// output device is the problem, not this program.
-fn test_tone(tx: &mpsc::Sender<input::Command>, meter: &audio::PeakMeter) {
+/// involved. If this is silent, the problem is the device or the bank rather
+/// than anything to do with reading keys.
+fn test_tone(synth: &mut audio::Synth) {
     println!("playing a test tone (no keyboard input involved)...");
-    for (i, key) in [60u8, 64, 67, 72].into_iter().enumerate() {
-        tx.send(input::Command::NoteOn { key, vel: 100 }).ok();
-        std::thread::sleep(std::time::Duration::from_millis(400));
-        println!("  note {} ({key}): peak {:.3}", i + 1, meter.take());
-    }
-    std::thread::sleep(std::time::Duration::from_millis(600));
     for key in [60u8, 64, 67, 72] {
-        tx.send(input::Command::NoteOff { key }).ok();
+        let _ = audio::apply(synth, input::Command::NoteOn { key, vel: 100 });
+        std::thread::sleep(std::time::Duration::from_millis(400));
     }
-    std::thread::sleep(std::time::Duration::from_millis(400));
-
-    println!();
-    println!("if those peaks were above zero but you heard nothing, the synth is");
-    println!("working and the output device is not the one you are listening to.");
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    for key in [60u8, 64, 67, 72] {
+        let _ = audio::apply(synth, input::Command::NoteOff { key });
+    }
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    println!("done");
 }
 
 /// The value following `flag` in `args`, if present.
@@ -177,11 +171,11 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
 }
 
 /// Tries an explicit path first, then the bundled banks under `assets/`,
-/// loading each sample into the software backend's clip type.
+/// loading each sample into kira's clip type.
 fn load_soundfont(
-    backend: &mut Software,
+    backend: &mut Kira,
     explicit: Option<&str>,
-) -> Result<SoundFont<<Software as AudioPlayback>::Clip>, rameau_soundfont::Error> {
+) -> Result<SoundFont<<Kira as AudioPlayback>::Clip>, rameau_soundfont::Error> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(arg) = explicit {
         candidates.push(PathBuf::from(arg));
