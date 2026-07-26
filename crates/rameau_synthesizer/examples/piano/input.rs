@@ -37,6 +37,19 @@ pub enum Command {
 /// terminal does not report key releases.
 const REPEAT_GATE: Duration = Duration::from_millis(150);
 
+/// Shortest time a typed note is allowed to sound.
+///
+/// A terminal keystroke does not always carry a duration. Under ConPTY — the
+/// VS Code integrated terminal — a press and its release arrive together, so
+/// the note would start and stop on the same audio frame: measured through a
+/// GM bank, a same-frame note-off renders an RMS of exactly 0.0, where the
+/// same note held 100 ms renders 0.020. That is silence, and it is why typing
+/// produced nothing there while a MIDI controller worked.
+///
+/// This floor applies only to the computer keyboard. A MIDI controller reports
+/// real note lengths, so its note-offs pass through untouched.
+const MIN_NOTE: Duration = Duration::from_millis(120);
+
 /// Lowest octave the computer keyboard can be shifted to (MIDI key of its C).
 const MIN_OCTAVE_KEY: i32 = 0;
 /// Highest, leaving room for the upper row plus its top C.
@@ -238,10 +251,12 @@ struct Keyboard {
     /// Character -> the MIDI key it actually triggered. Recording the key that
     /// was sent (rather than recomputing it) means a note-off issued after an
     /// octave shift releases the note that is sounding, not one never played.
-    held: HashMap<char, u8>,
+    held: HashMap<char, HeldNote>,
     /// When each held character last produced a press, for the repeat-gate
     /// fallback on terminals without release events.
     last_press: HashMap<char, Instant>,
+    /// Note-offs held back until their note has sounded for [`MIN_NOTE`].
+    deferred_off: Vec<(Instant, u8)>,
     /// MIDI key of the lower row's C.
     octave_key: i32,
     vel: u8,
@@ -250,11 +265,19 @@ struct Keyboard {
     sustain: bool,
 }
 
+/// A note currently sounding from a held character.
+#[derive(Clone, Copy)]
+struct HeldNote {
+    key: u8,
+    struck: Instant,
+}
+
 impl Keyboard {
     fn new() -> Self {
         Self {
             held: HashMap::new(),
             last_press: HashMap::new(),
+            deferred_off: Vec::new(),
             octave_key: 60, // middle C
             vel: 96,
             program: 0,
@@ -270,7 +293,17 @@ impl Keyboard {
             return;
         }
         let key = (self.octave_key + semitone).clamp(0, 127) as u8;
-        self.held.insert(ch, key);
+        // If this key is struck again while its previous release is still
+        // pending, that release now belongs to a note that is gone; letting it
+        // fire would cut the new one short.
+        self.deferred_off.retain(|&(_, pending)| pending != key);
+        self.held.insert(
+            ch,
+            HeldNote {
+                key,
+                struck: Instant::now(),
+            },
+        );
         // Echo the note. Besides being pleasant to watch, this is the fastest
         // way to tell a dead keyboard from dead audio: if names appear and
         // nothing sounds, the problem is downstream of input.
@@ -280,9 +313,31 @@ impl Keyboard {
 
     fn note_off(&mut self, tx: &Sender<Command>, ch: char) {
         self.last_press.remove(&ch);
-        if let Some(key) = self.held.remove(&ch) {
-            let _ = tx.send(Command::NoteOff { key });
+        let Some(note) = self.held.remove(&ch) else {
+            return;
+        };
+        // A terminal keystroke does not always carry a duration: under ConPTY
+        // the press and release arrive together, which would stop the note on
+        // the same frame it started and produce silence. Give it a floor.
+        let elapsed = note.struck.elapsed();
+        if elapsed >= MIN_NOTE {
+            let _ = tx.send(Command::NoteOff { key: note.key });
+        } else {
+            self.deferred_off.push((note.struck + MIN_NOTE, note.key));
         }
+    }
+
+    /// Sends any deferred note-offs that have now come due.
+    fn flush_deferred(&mut self, tx: &Sender<Command>) {
+        let now = Instant::now();
+        self.deferred_off.retain(|&(due, key)| {
+            if due <= now {
+                let _ = tx.send(Command::NoteOff { key });
+                false
+            } else {
+                true
+            }
+        });
     }
 
     /// Releases held notes whose auto-repeat has stopped. Only used where the
@@ -303,6 +358,9 @@ impl Keyboard {
     fn all_off(&mut self, tx: &Sender<Command>) {
         self.held.clear();
         self.last_press.clear();
+        // Drop pending releases too: Panic silences those notes anyway, and a
+        // stale note-off arriving later would cut a note struck after it.
+        self.deferred_off.clear();
         let _ = tx.send(Command::Panic);
     }
 
@@ -406,7 +464,10 @@ pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
     loop {
         // Until releases are known to work the gate has to be re-checked on a
         // timer, so poll rather than block; afterwards this just costs a wakeup.
+        // Polling rather than blocking so deferred note-offs (and the repeat
+        // gate) come due on time even while no keys are being pressed.
         if !event::poll(Duration::from_millis(20))? {
+            kb.flush_deferred(tx);
             if !releases.trusted() {
                 kb.expire_held(tx);
             }
@@ -476,6 +537,7 @@ pub fn run_keyboard(tx: &Sender<Command>) -> std::io::Result<()> {
             _ => {}
         }
 
+        kb.flush_deferred(tx);
         if !releases.trusted() {
             kb.expire_held(tx);
         }

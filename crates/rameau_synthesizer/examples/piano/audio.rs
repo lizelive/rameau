@@ -63,7 +63,6 @@ pub fn render_callback(
         channel: CHANNEL,
         program: program.into(),
     });
-
     move |buf: &mut [f32]| {
         let block_start = clock;
         let when = Timestamp::AtSeconds(block_start as f64 / sample_rate as f64);
@@ -73,8 +72,8 @@ pub fn render_callback(
         }
 
         // Everything that arrived since the last block lands at its start. The
-        // resulting jitter is bounded by one buffer — about 5 ms — which is
-        // below the threshold where playing feels laggy.
+        // resulting jitter is bounded by one buffer, well under the threshold
+        // where playing feels laggy.
         while let Ok(cmd) = rx.try_recv() {
             let (first, second) = events_for(cmd);
             let _ = synth.handle(when, first);

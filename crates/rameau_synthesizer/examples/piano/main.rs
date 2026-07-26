@@ -55,17 +55,21 @@ fn main() {
     let midi_filter = flag_value(&args, "--midi");
     let bank_path = args.iter().find(|a| !a.starts_with("--")).cloned();
 
+    // ~21.3 ms blocks. Not the smallest that runs: the smallest that runs
+    // *without crackling*. Callback arrivals quantise to Windows' ~10 ms timer,
+    // so a 10.7 ms block beats against it — measured over 5 s, 512 frames saw
+    // gaps up to 43 ms against a 21 ms buffer and dropped 0.2% of blocks, in
+    // both debug and release. At 1024 each block spans two whole timer ticks
+    // and nothing arrived late. Overridable because the safe size is a property
+    // of the machine's scheduler, not of this program: if it still crackles,
+    // raise it. See also `rameau_tinyaudio::min_frames_per_buffer`.
+    let frames_per_buffer = flag_value(&args, "--buffer")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1024);
     let config = PlaybackConfig {
         channels: 2,
         sample_rate: 48_000,
-        // ~21.3 ms blocks. Not the smallest that runs: the smallest that runs
-        // *without crackling*. Callback arrivals quantise to Windows' ~10 ms
-        // timer, so a 10.7 ms block beats against it — measured over 5 s, 512
-        // frames saw gaps up to 43 ms against a 21 ms buffer and dropped 0.2%
-        // of blocks, in both debug and release. At 1024 frames each block spans
-        // two whole timer ticks and no block was late. See also
-        // `rameau_tinyaudio::min_frames_per_buffer`.
-        frames_per_buffer: 1024,
+        frames_per_buffer,
     };
 
     // A single note measures about 0.064 peak through a GM bank and a four-note
