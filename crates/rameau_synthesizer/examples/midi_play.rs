@@ -94,8 +94,8 @@ fn load_soundfont(
         candidates.push(PathBuf::from(arg));
     }
     let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets");
-    candidates.push(assets.join("FluidR3Mono_GM.sf3"));
-    candidates.push(assets.join("Unison.SF2"));
+    // candidates.push(assets.join("FluidR3Mono_GM.sf3"));
+    candidates.push(assets.join("Unison.SF3"));
 
     let mut last_err: Option<Box<dyn core::error::Error>> = None;
     for path in candidates {
