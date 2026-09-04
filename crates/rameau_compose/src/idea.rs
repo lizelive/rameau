@@ -434,7 +434,9 @@ impl IdeaLibrary {
             if path.is_dir() {
                 self.load_dir_into(&path)?;
             } else if path.extension().is_some_and(|x| x == "json")
-                && path.file_name().is_none_or(|n| n != "index.json")
+                && !path
+                    .file_stem()
+                    .is_some_and(|n| n == "index" || n == "bundle" || n == "curation")
             {
                 let text = std::fs::read_to_string(&path)?;
                 let idea: Idea = serde_json::from_str(&text).map_err(|error| LibraryError::Json {

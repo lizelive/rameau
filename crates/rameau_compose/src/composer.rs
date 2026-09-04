@@ -112,6 +112,9 @@ pub struct Composer {
     form_bars: usize,
     key: Scale,
     ensemble: Option<Ensemble>,
+    /// The sliders the ensemble was chosen for, and when.
+    ensemble_state: MusicState,
+    ensemble_bar: u64,
     history: VecDeque<Vec<Fingerprint>>,
     last_sim: Vec<Option<Midi>>,
     bar_index: u64,
@@ -142,6 +145,8 @@ impl Composer {
             form_bars: 0,
             key,
             ensemble: None,
+            ensemble_state: state,
+            ensemble_bar: 0,
             history: VecDeque::new(),
             last_sim: Vec::new(),
             bar_index: 0,
@@ -289,6 +294,13 @@ impl Composer {
         }
     }
 
+    fn rechoose_ensemble(&mut self, state: &MusicState, n: usize) {
+        let prev = self.ensemble.take();
+        self.ensemble = Some(Ensemble::choose(&mut self.rng, state, n, prev.as_ref()));
+        self.ensemble_state = *state;
+        self.ensemble_bar = self.bar_index;
+    }
+
     fn remember(&mut self, id: &str) {
         self.recent_ideas.push_back(id.to_owned());
         while self.recent_ideas.len() > 4 {
@@ -304,10 +316,11 @@ impl Composer {
         let state = self.state;
         let n = state.voices.clamp(1, 6);
 
-        // Ensemble: re-chosen at phrase starts only.
+        // Ensemble: re-chosen when the voice count changes, when the sliders
+        // have moved a good way since it was chosen, or after a long while —
+        // and only at a phrase start except for the voice count.
         if self.ensemble.as_ref().is_none_or(|e| e.voices.len() != n) {
-            let prev = self.ensemble.take();
-            self.ensemble = Some(Ensemble::choose(&mut self.rng, &state, n, prev.as_ref()));
+            self.rechoose_ensemble(&state, n);
         }
         let ranges: Vec<(Midi, Midi)> = self
             .ensemble
@@ -338,8 +351,11 @@ impl Composer {
         };
         if plan.phrase_start {
             self.requested_cadence = false;
-            let prev = self.ensemble.take();
-            self.ensemble = Some(Ensemble::choose(&mut self.rng, &state, n, prev.as_ref()));
+            let moved = state.distance(&self.ensemble_state) > 0.25;
+            let stale = self.bar_index.saturating_sub(self.ensemble_bar) >= 24;
+            if moved || stale {
+                self.rechoose_ensemble(&state, n);
+            }
         }
         if plan.finished {
             self.form = None;
@@ -586,7 +602,30 @@ impl Composer {
     fn seed_free_voices(&mut self, grid: &mut BarGrid, plan: &BarPlan) {
         let slots = grid.slots;
         let slot_beats = grid.slot_beats;
-        for v in grid.voices.iter_mut().filter(|v| v.free) {
+        // Fixed material above and below each voice, per slot, so free voices
+        // are seeded between their neighbours rather than across them.
+        let fixed: Vec<Vec<Option<Midi>>> = grid
+            .voices
+            .iter()
+            .map(|v| if v.free { vec![None; slots] } else { v.pitch.clone() })
+            .collect();
+        for (vi, v) in grid.voices.iter_mut().enumerate().filter(|(_, v)| v.free) {
+            let range = v.range;
+            let bounds = |k: usize| -> (Midi, Midi) {
+                let above = fixed
+                    .iter()
+                    .take(vi)
+                    .filter_map(|f| f.get(k).copied().flatten())
+                    .min();
+                let below = fixed
+                    .iter()
+                    .skip(vi + 1)
+                    .filter_map(|f| f.get(k).copied().flatten())
+                    .max();
+                let hi = above.map_or(range.1, |a| (a - 1).min(range.1));
+                let lo = below.map_or(range.0, |b| (b + 1).max(range.0));
+                if lo <= hi { (lo, hi) } else { range }
+            };
             let target = v.target_onsets.max(1.0) as usize;
             // Note length in slots, from the target count.
             let len = (slots / target.max(1)).clamp(1, slots);
@@ -613,6 +652,11 @@ impl Composer {
                     }
                     None => plan.key.snap(prev),
                 };
+                let (lo, hi) = bounds(k);
+                let mut pitch = pitch.clamp(lo, hi);
+                if !plan.key.contains(pitch) {
+                    pitch = plan.key.snap(pitch).clamp(lo, hi);
+                }
                 let this_len = len.min(slots - k);
                 v.write(k, this_len, Some(pitch), false);
                 prev = pitch;

@@ -335,7 +335,12 @@ impl Scale {
 
 impl core::fmt::Display for Scale {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{} {}", self.tonic, self.mode.name())
+        let name = if crate::key::signature_of(self) < 0 {
+            self.tonic.name_flat()
+        } else {
+            self.tonic.name_sharp()
+        };
+        write!(f, "{} {}", name, self.mode.name())
     }
 }
 
@@ -378,6 +383,14 @@ mod tests {
         assert_eq!(a_minor.dominant().tonic, PitchClass::E);
         assert_eq!(a_minor.on_degree(4).tonic, PitchClass::E);
         assert!(Mode::parse("Dorian") == Some(Mode::Dorian));
+    }
+
+    #[test]
+    fn displays_flat_keys_with_flats() {
+        assert_eq!(Scale::new(PitchClass::new(10), Mode::Major).to_string(), "Bb major");
+        assert_eq!(Scale::new(PitchClass::new(6), Mode::Major).to_string(), "F# major");
+        assert_eq!(Scale::new(PitchClass::G, Mode::Minor).to_string(), "G minor");
+        assert_eq!(Scale::new(PitchClass::new(1), Mode::Minor).to_string(), "C# minor");
     }
 
     #[test]

@@ -109,7 +109,7 @@ pub const CATALOGUE: &[Instrument] = &[
     Instrument { id: "orgue", name: "orgue", family: Family::Keyboard, bank: 0, program: 19, range: (29, 96), roles: &[Role::Continuo, Role::Inner, Role::Bass], order: (0.75, 0.3), wealth_min: 0.3, violence: 0.3, note: "church organ, for the fugue and the funeral" },
     Instrument { id: "luth", name: "guitare", family: Family::Keyboard, bank: 0, program: 24, range: (40, 84), roles: &[Role::Continuo, Role::Inner], order: (0.35, 0.35), wealth_min: 0.05, violence: 0.0, note: "guitar or lute, the street and salon continuo" },
     Instrument { id: "harpe", name: "harpe", family: Family::Keyboard, bank: 0, program: 46, range: (36, 96), roles: &[Role::Continuo, Role::Inner], order: (0.9, 0.15), wealth_min: 0.6, violence: 0.0, note: "the queen's own instrument" },
-    Instrument { id: "timbales", name: "timbales", family: Family::Percussion, bank: 0, program: 47, range: (40, 55), roles: &[Role::Percussion, Role::Bass], order: (0.6, 0.5), wealth_min: 0.3, violence: 0.7, note: "timpani on tonic and dominant" },
+    Instrument { id: "timbales", name: "timbales", family: Family::Percussion, bank: 0, program: 47, range: (40, 55), roles: &[Role::Percussion], order: (0.6, 0.5), wealth_min: 0.3, violence: 0.7, note: "timpani on tonic and dominant" },
     Instrument { id: "tambour", name: "tambour", family: Family::Percussion, bank: 128, program: 38, range: (38, 40), roles: &[Role::Percussion], order: (0.3, 0.4), wealth_min: 0.0, violence: 0.8, note: "the side drum of the Garde; GM snare" },
     Instrument { id: "tambourin", name: "tambourin", family: Family::Percussion, bank: 128, program: 45, range: (41, 47), roles: &[Role::Percussion], order: (0.15, 0.25), wealth_min: 0.0, violence: 0.5, note: "the Provençal long drum under the galoubet; GM low tom" },
     Instrument { id: "tocsin", name: "tocsin", family: Family::Percussion, bank: 0, program: 14, range: (55, 79), roles: &[Role::Stinger], order: (0.5, 0.6), wealth_min: 0.0, violence: 1.0, note: "the alarm bell; GM tubular bells" },
@@ -204,6 +204,7 @@ impl Ensemble {
             if state.percussion > 0.65
                 && state.wealth > 0.3
                 && let Some(t) = Instrument::by_id("timbales")
+                && !percussion.contains(&t)
             {
                 percussion.push(t);
             }
@@ -253,8 +254,10 @@ fn pick(
             if previous == Some(*i) {
                 w *= 9.0;
             }
-            if used.contains(i) {
-                w *= 0.35;
+            match used.iter().filter(|u| *u == i).count() {
+                0 => {}
+                1 => w *= 0.15,
+                _ => w = 0.0,
             }
             w
         })

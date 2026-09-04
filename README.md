@@ -50,6 +50,27 @@ It is off by default: the bank adds about 6.6 MiB to the binary, which is
 wasted on any program that supplies its own. The bank is CC0-1.0 while the code
 is AGPL — see [`rameau_unison`](crates/rameau_unison).
 
+## Composing, not just playing
+
+The workspace also contains a real-time composition engine, built for the
+dynamic score of a French Revolution game but general in its parts:
+
+```rust,no_run
+use rameau_compose::{Composer, IdeaLibrary, MusicState};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let mut composer = Composer::new(IdeaLibrary::load_dir("ideas")?, 1789);
+composer.set_state(MusicState { tempo_bpm: 120.0, voices: 3, ..MusicState::default() });
+let bar = composer.next_bar(); // notes, programs, and why it wrote them
+# Ok(()) }
+```
+
+`rameau_compose` plans each bar with a form (fugue, rondeau, chaconne, air,
+contredanse), harmonises the fixed tune over a period chord grammar, writes
+the free voices by simulated annealing against counterpoint rules and the
+sliders' targets, and orchestrates from a catalogue of period instruments.
+`rameau_voix` sings it on synthesized French vowels. See the crate READMEs.
+
 ## Crates
 
 | Crate | Purpose |
@@ -65,9 +86,12 @@ is AGPL — see [`rameau_unison`](crates/rameau_unison).
 | [`rameau_soundfont_convert`](crates/rameau_soundfont_convert) | Convert `.sf2` banks to Ogg/Vorbis-compressed `.sf3` |
 | [`rameau_unison`](crates/rameau_unison) | The Unison bank (CC0-1.0) embedded as compressed `.sf3` |
 | [`rameau_synthesizer`](crates/rameau_synthesizer) | SoundFont synthesizer driving a backend |
-| [`rameau_theory`](crates/rameau_theory) | Music theory primitives (placeholder) |
-| [`rameau_chords`](crates/rameau_chords) | Chord construction/recognition (placeholder) |
-| [`rameau_types`](crates/rameau_types) | Shared core types (placeholder) |
+| [`rameau_theory`](crates/rameau_theory) | Pitch classes, modes, degree-encoded notes, keys, meters and the voice-leading rules |
+| [`rameau_chords`](crates/rameau_chords) | Roman numerals, cadences, a period harmonic grammar and the stock grounds |
+| [`rameau_kern`](crates/rameau_kern) | Humdrum `**kern` parser |
+| [`rameau_voix`](crates/rameau_voix) | Formant-synthesized singing voice as a SoundFont bank, with text-to-vowel reduction |
+| [`rameau_compose`](crates/rameau_compose) | The composition engine: ideas, mutations, forms, harmonisation, annealing, instruments, conducting |
+| [`rameau_types`](crates/rameau_types) | Shared core types: a deterministic RNG |
 
 ## License
 

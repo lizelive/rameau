@@ -40,6 +40,12 @@ pub enum Mutation {
         /// The factor, > 1.
         factor: f64,
     },
+    /// Keep only the first `beats` crotchets (the head of a tune, as a
+    /// fugue subject).
+    Head {
+        /// Crotchets kept.
+        beats: f64,
+    },
     /// Keep only events `start..start + count`.
     Fragment {
         /// First event kept.
@@ -78,6 +84,7 @@ impl Mutation {
             Mutation::Retrograde => "retro".to_owned(),
             Mutation::Augmentation { factor } => format!("aug×{factor}"),
             Mutation::Diminution { factor } => format!("dim÷{factor}"),
+            Mutation::Head { beats } => format!("head[{beats}]"),
             Mutation::Fragment { start, count } => format!("frag[{start}+{count}]"),
             Mutation::Sequence { times, steps } => format!("seq×{times}{steps:+}"),
             Mutation::OctaveShift { octaves } => format!("8va{octaves:+}"),
@@ -104,6 +111,19 @@ impl Mutation {
             Mutation::Retrograde => events.iter().rev().copied().collect(),
             Mutation::Augmentation { factor } => scale_durations(events, factor.max(1e-3)),
             Mutation::Diminution { factor } => scale_durations(events, 1.0 / factor.max(1e-3)),
+            Mutation::Head { beats } => {
+                let mut out = Vec::new();
+                let mut t = 0.0;
+                for e in events {
+                    if t >= beats - 1e-9 {
+                        break;
+                    }
+                    let keep = e.beats.min(beats - t);
+                    out.push(IdeaEvent { beats: keep, ..*e });
+                    t += keep;
+                }
+                if out.is_empty() { events.to_vec() } else { out }
+            }
             Mutation::Fragment { start, count } => {
                 let out: Vec<IdeaEvent> =
                     events.iter().skip(start).take(count.max(1)).copied().collect();
@@ -280,6 +300,10 @@ mod tests {
         assert_eq!(d[0].beats, 0.5);
         let f = Mutation::Fragment { start: 1, count: 2 }.apply(&ev());
         assert_eq!(f.len(), 2);
+        let h = Mutation::Head { beats: 2.0 }.apply(&ev());
+        assert_eq!(h.len(), 3);
+        assert_eq!(h[2].beats, 0.5);
+        assert_eq!(h.iter().map(|e| e.beats).sum::<f64>(), 2.0);
         let s = Mutation::Sequence { times: 2, steps: -1 }.apply(&ev());
         assert_eq!(s.len(), 15);
         assert_eq!(s[10].note.unwrap().staff_index(), -2);

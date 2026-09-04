@@ -225,7 +225,9 @@ fn barline(columns: &mut [Column], fields: &[&str]) {
             .collect();
         if let Ok(n) = digits.parse::<u32>() {
             col.measure = n;
-        } else {
+        } else if col.cursor > 0.0 {
+            // A numberless barline before any music is the pickup bar's
+            // opening line; after music it is an unnumbered bar.
             col.measure += 1;
         }
         col.bar_start = col.cursor;

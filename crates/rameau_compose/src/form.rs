@@ -115,7 +115,7 @@ pub struct FormContext<'a> {
 }
 
 /// A form.
-pub trait Form {
+pub trait Form: Send {
     /// Which form this is.
     fn kind(&self) -> FormKind;
     /// Plans the next bar.
@@ -238,7 +238,7 @@ impl Line {
 
 /// Picks the mode for a key from the darkness slider.
 pub fn mode_for(state: &MusicState, rng: &mut SplitMix64) -> Mode {
-    if state.darkness > 0.85 && rng.chance(0.5) {
+    if state.darkness > 0.9 && rng.chance(0.3) {
         Mode::Phrygian
     } else if state.darkness > 0.6 && rng.chance(0.3) {
         Mode::Dorian
@@ -522,7 +522,7 @@ impl Form for Air {
             if self.track.is_some() {
                 self.step += 1;
             }
-            if self.step >= self.tenure || ctx.requested_idea.is_some() {
+            if self.step >= self.tenure || ctx.requested_idea.is_some() || ctx.requested_cadence {
                 self.finished = true;
             }
             self.start_strain(ctx);
@@ -662,7 +662,9 @@ impl Form for Rondeau {
             if self.track.is_some() {
                 self.section += 1;
             }
-            if self.section >= 5 || (ctx.requested_idea.is_some() && self.section.is_multiple_of(2)) {
+            if self.section >= 5
+                || ((ctx.requested_idea.is_some() || ctx.requested_cadence) && self.section.is_multiple_of(2))
+            {
                 self.finished = true;
             }
             if !self.finished {
@@ -800,7 +802,9 @@ impl Form for Chaconne {
             if self.ground_line.is_some() {
                 self.variation += 1;
             }
-            if self.variation >= self.max_variations || (ctx.requested_idea.is_some() && self.variation >= 2) {
+            if self.variation >= self.max_variations
+                || ((ctx.requested_idea.is_some() || ctx.requested_cadence) && self.variation >= 2)
+            {
                 self.finished = true;
             }
             self.start_variation(ctx);
@@ -920,7 +924,7 @@ impl Fugue {
             stretto_done: false,
             voices_seen: voices,
             finished: false,
-            subject_bars: subject.bars().max(1),
+            subject_bars: if subject.kind == IdeaKind::Subject { subject.bars().max(1) } else { subject.bars().clamp(1, 4) },
         };
         f.entries = entry_order(voices);
         f
@@ -929,6 +933,9 @@ impl Fugue {
     fn subject_line(&self, ctx: &mut FormContext<'_>, voice: usize, answer: bool, key: &Scale, muts: &[Mutation]) -> Option<Line> {
         let idea = ctx.lib.get(&self.subject)?;
         let mut variant = Variant::plain(&idea.id);
+        if idea.kind != IdeaKind::Subject {
+            variant = variant.with(Mutation::Head { beats: idea.metre.bar_quarters() * self.subject_bars as f64 });
+        }
         if answer {
             variant = variant.with(Mutation::Transposition { steps: 4 });
         }
@@ -1009,6 +1016,12 @@ impl Fugue {
             return;
         }
         self.voices_seen = n;
+        if ctx.requested_cadence && self.stage != FugueStage::Final {
+            self.stage = FugueStage::Final;
+            self.key = self.home;
+            self.entries = vec![(n.saturating_sub(1), false)];
+            return;
+        }
         self.stage = match self.stage {
             FugueStage::Exposition | FugueStage::MiddleEntry | FugueStage::Stretto => FugueStage::Episode,
             FugueStage::Episode => {
