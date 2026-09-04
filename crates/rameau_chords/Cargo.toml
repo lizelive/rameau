@@ -5,9 +5,16 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Chord construction/recognition (placeholder)"
+description = "Chords, roman numerals and a period harmonic grammar for the rameau workspace"
 
 [dependencies]
+rameau_theory = { path = "../rameau_theory", version = "0.2.0" }
+rameau_types = { path = "../rameau_types", version = "0.2.0" }
+serde = { version = "1", optional = true, features = ["derive"] }
+
+[features]
+default = []
+serde = ["dep:serde", "rameau_theory/serde"]
 
 [lints]
 workspace = true

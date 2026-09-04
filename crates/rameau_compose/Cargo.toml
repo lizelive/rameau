@@ -1,0 +1,26 @@
+[package]
+name = "rameau_compose"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "A real-time composition engine: period ideas, motivic mutation, harmonisation, forms and simulated annealing driven by musical sliders"
+
+[dependencies]
+rameau_chords = { path = "../rameau_chords", version = "0.2.0", features = ["serde"] }
+rameau_midi = { path = "../rameau_midi", version = "0.2.0" }
+rameau_playback = { path = "../rameau_playback", version = "0.2.0" }
+rameau_synthesizer = { path = "../rameau_synthesizer", version = "0.2.0" }
+rameau_theory = { path = "../rameau_theory", version = "0.2.0", features = ["serde"] }
+rameau_types = { path = "../rameau_types", version = "0.2.0" }
+rameau_voix = { path = "../rameau_voix", version = "0.2.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
+rameau_software = { path = "../rameau_software", version = "0.2.0" }
+
+[lints]
+workspace = true

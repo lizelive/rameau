@@ -73,9 +73,10 @@ fn main() {
     let norm = 0.9 / peak;
     let mono: Vec<i16> = stereo
         .data
-        .chunks_exact(2)
-        .map(|lr| {
-            let [l, r] = lr else { return 0 };
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|[l, r]| {
             let m = (l + r) * 0.5 * norm;
             (m.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
         })

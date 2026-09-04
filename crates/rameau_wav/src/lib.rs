@@ -1,9 +1,9 @@
 //! Writing [`AudioClip`](rameau_clip::AudioClip)s to canonical 16-bit PCM WAV
 //! files.
 //!
-//! Only the mono, 16-bit little-endian PCM case is produced — the same format
-//! the rest of this workspace decodes audio to. Any `AudioClip` whose samples
-//! are `i16` can be saved:
+//! 16-bit little-endian PCM is produced — the same format the rest of this
+//! workspace decodes audio to: mono from any `AudioClip` whose samples are
+//! `i16`, or interleaved stereo from a plain slice via [`save_stereo`].
 //!
 //! ```no_run
 //! use rameau_clip::Clip;
@@ -13,4 +13,4 @@
 
 mod write;
 
-pub use write::{save, write};
+pub use write::{save, save_stereo, write, write_interleaved};

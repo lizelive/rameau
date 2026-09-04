@@ -5,9 +5,14 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Music theory primitives (placeholder)"
+description = "Music theory primitives: pitch classes, modes, scale degrees, keys, meter and voice-leading rules"
 
 [dependencies]
+serde = { version = "1", optional = true, features = ["derive"] }
+
+[features]
+default = []
+serde = ["dep:serde"]
 
 [lints]
 workspace = true

@@ -36,6 +36,45 @@ pub struct SoundFont<C = Clip<i16>> {
     pub samples: Vec<Sample<C>>,
 }
 
+impl<C> SoundFont<C> {
+    /// Appends every preset, instrument and sample of `other` to this bank.
+    ///
+    /// Instrument and sample indices inside `other`'s zones are shifted so
+    /// they still point at the right things after the move. Presets keep
+    /// their bank and program numbers, so give `other` its own bank if the
+    /// two must not shadow each other: a synthesizer resolves the *first*
+    /// preset it finds for a `(bank, program)` pair.
+    pub fn merge(&mut self, other: SoundFont<C>) {
+        let inst_offset = self.instruments.len() as u16;
+        let sample_offset = self.samples.len() as u16;
+        let shift = |zones: &mut Vec<Zone>, kind: GeneratorType, offset: u16| {
+            for zone in zones {
+                for g in &mut zone.generators {
+                    if g.kind == kind
+                        && let GeneratorAmount::Word(w) = g.amount
+                    {
+                        g.amount = GeneratorAmount::Word(w.saturating_add(offset));
+                    }
+                }
+            }
+        };
+        for mut preset in other.presets {
+            shift(&mut preset.zones, GeneratorType::INSTRUMENT, inst_offset);
+            self.presets.push(preset);
+        }
+        for mut inst in other.instruments {
+            shift(&mut inst.zones, GeneratorType::SAMPLE_ID, sample_offset);
+            self.instruments.push(inst);
+        }
+        for mut sample in other.samples {
+            if matches!(sample.kind, SampleType::Left | SampleType::Right | SampleType::Linked) {
+                sample.link = sample.link.saturating_add(sample_offset);
+            }
+            self.samples.push(sample);
+        }
+    }
+}
+
 /// A `major.minor` version number, as stored in the `ifil`/`iver` records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

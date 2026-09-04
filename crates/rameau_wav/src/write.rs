@@ -11,6 +11,56 @@ const NUM_CHANNELS: u16 = 1;
 const PCM_FORMAT: u16 = 1;
 const BLOCK_ALIGN: u16 = NUM_CHANNELS * (BITS_PER_SAMPLE / 8);
 
+/// Writes interleaved 16-bit PCM with `channels` channels to `writer`.
+///
+/// `samples` holds frames of `channels` interleaved values (`L, R, L, R, …`
+/// for stereo).
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] produced while writing to `writer`.
+pub fn write_interleaved<W: Write>(
+    writer: &mut W,
+    samples: &[i16],
+    channels: u16,
+    sample_rate: u32,
+) -> io::Result<()> {
+    let channels = channels.max(1);
+    let block_align = channels * (BITS_PER_SAMPLE / 8);
+    let data_len = (samples.len() * 2) as u32;
+    let byte_rate = sample_rate * u32::from(block_align);
+
+    writer.write_all(b"RIFF")?;
+    writer.write_all(&(36 + data_len).to_le_bytes())?;
+    writer.write_all(b"WAVE")?;
+    writer.write_all(b"fmt ")?;
+    writer.write_all(&16u32.to_le_bytes())?;
+    writer.write_all(&PCM_FORMAT.to_le_bytes())?;
+    writer.write_all(&channels.to_le_bytes())?;
+    writer.write_all(&sample_rate.to_le_bytes())?;
+    writer.write_all(&byte_rate.to_le_bytes())?;
+    writer.write_all(&block_align.to_le_bytes())?;
+    writer.write_all(&BITS_PER_SAMPLE.to_le_bytes())?;
+    writer.write_all(b"data")?;
+    writer.write_all(&data_len.to_le_bytes())?;
+    for s in samples {
+        writer.write_all(&s.to_le_bytes())?;
+    }
+    Ok(())
+}
+
+/// Saves interleaved stereo 16-bit PCM to `path`.
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] from creating or writing the file.
+pub fn save_stereo(samples: &[i16], sample_rate: u32, path: impl AsRef<Path>) -> io::Result<()> {
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    write_interleaved(&mut writer, samples, 2, sample_rate)?;
+    writer.flush()
+}
+
 /// Writes `clip` as a 16-bit mono PCM WAV stream to `writer`.
 ///
 /// The writer is not internally buffered; wrap it in a [`BufWriter`] (or use
