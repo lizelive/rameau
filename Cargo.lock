@@ -1012,6 +1012,7 @@ dependencies = [
  "rameau_midi",
  "rameau_playback",
  "rameau_software",
+ "rameau_soundfont",
  "rameau_synthesizer",
  "rameau_theory",
  "rameau_types",

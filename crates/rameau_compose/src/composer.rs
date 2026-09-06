@@ -97,6 +97,9 @@ pub struct ComposedBar {
     pub initial_cost: f64,
     /// Whether a phrase began here.
     pub phrase_start: bool,
+    /// Whether this bar acted on a pending [`Trigger::Cadence`]. Until some
+    /// bar reports this, the request is still pending.
+    pub consumed_cadence: bool,
     /// The sliders in force.
     pub state: MusicState,
 }
@@ -349,8 +352,10 @@ impl Composer {
             }
             plan
         };
-        if plan.phrase_start {
+        if plan.consumed_cadence {
             self.requested_cadence = false;
+        }
+        if plan.phrase_start {
             let moved = state.distance(&self.ensemble_state) > 0.25;
             let stale = self.bar_index.saturating_sub(self.ensemble_bar) >= 24;
             if moved || stale {
@@ -391,6 +396,7 @@ impl Composer {
             breakdown: Breakdown::default(),
             initial_cost: 0.0,
             phrase_start: true,
+            consumed_cadence: false,
             state: self.state,
         }
     }
@@ -593,6 +599,7 @@ impl Composer {
             breakdown: out.breakdown,
             initial_cost: out.initial_cost,
             phrase_start: plan.phrase_start,
+            consumed_cadence: plan.consumed_cadence,
             state: *state,
         }
     }
@@ -871,6 +878,104 @@ mod tests {
             assert!(forms_seen.contains(&form), "{form:?} never ran: {forms_seen:?}");
             assert!(total_notes > 24 * 3, "{form:?} produced {total_notes} notes");
         }
+    }
+
+    #[test]
+    fn a_cadence_request_survives_until_a_form_takes_it() {
+        // The request arrives mid-strain, where no form can act on it. It
+        // must stay pending rather than being cleared by the next phrase.
+        for form in FormKind::ALL {
+            let mut c = Composer::new(library(), 21);
+            c.iterations = 60;
+            c.set_state(MusicState { voices: 3, ..MusicState::default() });
+            c.trigger(Trigger::Form(form));
+            c.next_bar();
+            c.trigger(Trigger::Cadence);
+            let mut consumed_at = None;
+            for i in 0..48 {
+                if c.next_bar().consumed_cadence {
+                    consumed_at = Some(i);
+                    break;
+                }
+            }
+            assert!(consumed_at.is_some(), "{form:?} never took the cadence request");
+            // Once taken, it is not taken again without a new trigger.
+            for _ in 0..24 {
+                assert!(!c.next_bar().consumed_cadence, "{form:?} re-took a spent request");
+            }
+        }
+    }
+
+    /// A subject whose head is much shorter than an episode: four copies of
+    /// it in sequence fill fewer bars than the episode lasts, so the episode
+    /// line runs out before the episode does.
+    fn short_headed_library() -> IdeaLibrary {
+        let mut lib = IdeaLibrary::new();
+        let mut events = vec![
+            IdeaEvent::note(0, 0, 0, 0.25),
+            IdeaEvent::note(1, 0, 0, 0.25),
+            IdeaEvent::note(2, 0, 0, 0.25),
+            IdeaEvent::note(1, 0, 0, 0.25),
+            IdeaEvent::note(0, 0, 0, 0.25),
+        ];
+        events.extend([
+            IdeaEvent::note(4, 0, 0, 1.0),
+            IdeaEvent::note(3, 0, 0, 1.0),
+            IdeaEvent::note(2, 0, 0, 0.75),
+            IdeaEvent::note(0, 0, 0, 4.0),
+        ]);
+        lib.insert(Idea {
+            schema: "peasantide-idea/2".into(),
+            id: "short".into(),
+            name: "short-headed subject".into(),
+            kind: IdeaKind::Subject,
+            metre: Meter::COMMON,
+            mode: Mode::Major,
+            tempo_hint: None,
+            events,
+            anacrusis: 0.0,
+            lyrics: None,
+            affect: vec![],
+            roles: vec!["subject".into()],
+            phase_fit: vec![],
+            order_fit: [0.0, 1.0],
+            pairs_with: vec![],
+            design_note: String::new(),
+            citation: Citation::default(),
+        });
+        lib
+    }
+
+    #[test]
+    fn a_fugue_leaves_its_episodes_however_short_the_line() {
+        // The episode's countdown used to run only while its line was still
+        // sounding, so a line shorter than the episode froze it and the
+        // fugue never left the stage. A low density makes the episode three
+        // bars, longer than this subject's four-fold head.
+        let mut c = Composer::new(short_headed_library(), 4);
+        c.iterations = 40;
+        c.set_state(MusicState { voices: 3, density: 0.2, ..MusicState::default() });
+        c.trigger(Trigger::Form(FormKind::Fugue));
+        let mut sections = std::collections::HashSet::new();
+        let mut longest_episode_run = 0;
+        let mut run = 0;
+        for _ in 0..150 {
+            let bar = c.next_bar();
+            if bar.form != FormKind::Fugue {
+                break;
+            }
+            let episode = bar.section.contains("episode");
+            run = if episode { run + 1 } else { 0 };
+            longest_episode_run = longest_episode_run.max(run);
+            for stage in ["exposition", "episode", "middle entry", "stretto", "final entry"] {
+                if bar.section.contains(stage) {
+                    sections.insert(stage);
+                }
+            }
+        }
+        assert!(longest_episode_run <= 8, "stuck in an episode for {longest_episode_run} bars");
+        assert!(sections.contains("episode"), "no episode reached: {sections:?}");
+        assert!(sections.len() >= 3, "the fugue only reached {sections:?}");
     }
 
     #[test]

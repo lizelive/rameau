@@ -87,6 +87,11 @@ pub struct BarPlan {
     pub vowels: Vec<Vowel>,
     /// Whether the form has finished and the composer should pick another.
     pub finished: bool,
+    /// Whether this bar acted on a pending cadence request. The composer
+    /// keeps the request pending until some form says it took it, so a
+    /// trigger that arrives mid-strain is honoured at the next boundary
+    /// rather than silently dropped.
+    pub consumed_cadence: bool,
     /// Bass pedal point pitch class, when the form wants one.
     pub pedal: Option<Midi>,
 }
@@ -518,12 +523,14 @@ impl Form for Air {
         let bar_len = self.meter.bar_quarters();
         let slot = self.meter.grid_quarters();
         let mut phrase_start = false;
+        let mut consumed_cadence = false;
         if self.track.as_ref().is_none_or(|t| t.finished(bar_len)) {
             if self.track.is_some() {
                 self.step += 1;
             }
             if self.step >= self.tenure || ctx.requested_idea.is_some() || ctx.requested_cadence {
                 self.finished = true;
+                consumed_cadence = ctx.requested_cadence;
             }
             self.start_strain(ctx);
             phrase_start = true;
@@ -563,6 +570,7 @@ impl Form for Air {
             sung_voice: sing.then_some(0),
             vowels: self.vowels.clone(),
             finished: self.finished && self.track.as_ref().is_none_or(|t| t.finished(bar_len)),
+            consumed_cadence,
             pedal: None,
         }
     }
@@ -658,6 +666,7 @@ impl Form for Rondeau {
         let bar_len = self.meter.bar_quarters();
         let slot = self.meter.grid_quarters();
         let mut phrase_start = false;
+        let mut consumed_cadence = false;
         if self.track.as_ref().is_none_or(|t| t.finished(bar_len)) {
             if self.track.is_some() {
                 self.section += 1;
@@ -666,6 +675,7 @@ impl Form for Rondeau {
                 || ((ctx.requested_idea.is_some() || ctx.requested_cadence) && self.section.is_multiple_of(2))
             {
                 self.finished = true;
+                consumed_cadence = ctx.requested_cadence;
             }
             if !self.finished {
                 self.start_section(ctx);
@@ -705,6 +715,7 @@ impl Form for Rondeau {
             sung_voice: sing.then_some(0),
             vowels: self.vowels.clone(),
             finished: done,
+            consumed_cadence,
             pedal: None,
         }
     }
@@ -794,6 +805,7 @@ impl Form for Chaconne {
         let bar_len = self.meter.bar_quarters();
         let slot = self.meter.grid_quarters();
         let mut phrase_start = false;
+        let mut consumed_cadence = false;
         let ground_done = self
             .ground_line
             .as_ref()
@@ -806,6 +818,7 @@ impl Form for Chaconne {
                 || ((ctx.requested_idea.is_some() || ctx.requested_cadence) && self.variation >= 2)
             {
                 self.finished = true;
+                consumed_cadence = ctx.requested_cadence;
             }
             self.start_variation(ctx);
             phrase_start = true;
@@ -859,6 +872,7 @@ impl Form for Chaconne {
             sung_voice: None,
             vowels: Vec::new(),
             finished: self.finished,
+            consumed_cadence,
             pedal: None,
         }
     }
@@ -895,6 +909,9 @@ pub struct Fugue {
     chord_bar: usize,
     middle_entries_done: usize,
     stretto_done: bool,
+    /// Set by `advance_stage` when it jumped to the final entry because a
+    /// cadence was asked for; read and cleared by `next_bar`.
+    took_cadence: bool,
     voices_seen: usize,
     finished: bool,
     subject_bars: usize,
@@ -922,6 +939,7 @@ impl Fugue {
             chord_bar: 0,
             middle_entries_done: 0,
             stretto_done: false,
+            took_cadence: false,
             voices_seen: voices,
             finished: false,
             subject_bars: if subject.kind == IdeaKind::Subject { subject.bars().max(1) } else { subject.bars().clamp(1, 4) },
@@ -1020,6 +1038,7 @@ impl Fugue {
             self.stage = FugueStage::Final;
             self.key = self.home;
             self.entries = vec![(n.saturating_sub(1), false)];
+            self.took_cadence = true;
             return;
         }
         self.stage = match self.stage {
@@ -1214,6 +1233,11 @@ impl Form for Fugue {
                 *v = fixed(role, v.range, notes, &t.line.label);
                 labels.push(t.line.label.clone());
             }
+        }
+        // The episode's countdown runs on the bar, not on the episode line:
+        // a line shorter than the episode would otherwise freeze it and the
+        // fugue would never leave the stage.
+        if self.stage == FugueStage::Episode {
             self.episode_bars = self.episode_bars.saturating_sub(1);
         }
         let mut chords = self.chords.get(self.chord_bar).cloned().unwrap_or_default();
@@ -1245,6 +1269,7 @@ impl Form for Fugue {
             sung_voice: None,
             vowels: Vec::new(),
             finished: self.finished && self.tracks.is_empty(),
+            consumed_cadence: core::mem::take(&mut self.took_cadence),
             pedal,
         }
     }

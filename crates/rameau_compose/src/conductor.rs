@@ -20,9 +20,13 @@ use rameau_midi::event::MidiEvent;
 use rameau_playback::{AudioPlayback, PlaybackError, Timestamp};
 use rameau_synthesizer::Synthesizer;
 
-use crate::composer::{ComposedBar, Composer, STINGER_CHANNEL, Trigger};
+use crate::composer::{ComposedBar, Composer, DRUM_CHANNEL, STINGER_CHANNEL, Trigger};
 use crate::instrument::Instrument;
 use crate::state::MusicState;
+
+/// How long an immediately struck bell or cannon is held, in beats, before
+/// its scheduled release.
+const STINGER_BEATS: f64 = 4.0;
 
 /// An event with a time in seconds.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -157,8 +161,17 @@ impl<P: AudioPlayback> Conductor<P> {
                         }
                     }
                     Ok(Command::Trigger(t)) => {
-                        if matches!(t, Trigger::Tocsin | Trigger::Cannon) {
-                            self.strike(&t)?;
+                        // A bell or a cannon sounds at once rather than
+                        // waiting for the next bar; its release is scheduled
+                        // on the beat clock so the voice is not left gated.
+                        for (channel, key) in self.strike(&t)? {
+                            seq += 1;
+                            heap.push(Scheduled {
+                                beat: beat + STINGER_BEATS,
+                                order: 0,
+                                seq,
+                                event: MidiEvent::NoteOff { channel, key, vel: 0 },
+                            });
                         }
                         self.composer.trigger(t);
                     }
@@ -197,22 +210,27 @@ impl<P: AudioPlayback> Conductor<P> {
         }
     }
 
-    /// An immediate bell or cannon.
-    fn strike(&mut self, t: &Trigger) -> Result<(), PlaybackError> {
+    /// Sounds a bell or a cannon at once, and returns the
+    /// `(channel, key)` pairs the caller must release: nothing else will
+    /// send a note-off for them, so a gated voice would otherwise be left
+    /// sounding until the transport stopped or it was stolen.
+    fn strike(&mut self, t: &Trigger) -> Result<Vec<(u8, u8)>, PlaybackError> {
         match t {
             Trigger::Tocsin => {
                 if let Some(b) = Instrument::by_id("tocsin") {
                     self.synth.handle(Timestamp::Now, MidiEvent::ControlChange { channel: STINGER_CHANNEL, ctrl: 0, value: 0 })?;
                     self.synth.handle(Timestamp::Now, MidiEvent::ProgramChange { channel: STINGER_CHANNEL, program: b.program.into() })?;
                 }
-                let key = self.composer.key().tonic_midi(72) as u8;
-                self.synth.handle(Timestamp::Now, MidiEvent::NoteOn { channel: STINGER_CHANNEL, key, vel: 115 })
+                let key = self.composer.key().tonic_midi(72).clamp(0, 127) as u8;
+                self.synth.handle(Timestamp::Now, MidiEvent::NoteOn { channel: STINGER_CHANNEL, key, vel: 115 })?;
+                Ok(vec![(STINGER_CHANNEL, key)])
             }
             Trigger::Cannon => {
-                self.synth.handle(Timestamp::Now, MidiEvent::NoteOn { channel: 9, key: 49, vel: 127 })?;
-                self.synth.handle(Timestamp::Now, MidiEvent::NoteOn { channel: 9, key: 35, vel: 127 })
+                self.synth.handle(Timestamp::Now, MidiEvent::NoteOn { channel: DRUM_CHANNEL, key: 49, vel: 127 })?;
+                self.synth.handle(Timestamp::Now, MidiEvent::NoteOn { channel: DRUM_CHANNEL, key: 35, vel: 127 })?;
+                Ok(vec![(DRUM_CHANNEL, 49), (DRUM_CHANNEL, 35)])
             }
-            _ => Ok(()),
+            _ => Ok(Vec::new()),
         }
     }
 }
@@ -291,6 +309,25 @@ impl OfflineRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_struck_stinger_names_a_note_to_release() {
+        // The immediate strike is outside the bar scheduler, so nothing else
+        // will release it; `strike` must hand back what it gated.
+        use crate::idea::IdeaLibrary;
+        let mut backend = rameau_software::Software::new(8_000);
+        let sf = rameau_soundfont::SoundFont::<alloc::sync::Arc<rameau_clip::Clip<i16>>>::default();
+        let _ = &mut backend;
+        let synth = rameau_synthesizer::Synthesizer::new(sf, backend, 8_000);
+        let mut conductor = Conductor::new(synth, Composer::new(IdeaLibrary::new(), 1));
+        let bell = conductor.strike(&Trigger::Tocsin).unwrap();
+        assert_eq!(bell.len(), 1);
+        assert_eq!(bell[0].0, STINGER_CHANNEL);
+        let cannon = conductor.strike(&Trigger::Cannon).unwrap();
+        assert_eq!(cannon.len(), 2);
+        assert!(cannon.iter().all(|(c, _)| *c == DRUM_CHANNEL));
+        assert!(conductor.strike(&Trigger::Cadence).unwrap().is_empty());
+    }
 
     #[test]
     fn heap_orders_offs_before_ons_at_equal_beats() {
