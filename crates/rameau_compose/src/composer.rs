@@ -979,6 +979,40 @@ mod tests {
     }
 
     #[test]
+    fn the_timpani_stay_inside_their_own_range() {
+        // The kettledrums are tuned to the tonic and dominant by anchoring
+        // the key to the bottom of their range; an anchor that handed back a
+        // tonic below it put them under their lowest note in five keys of
+        // twelve.
+        let timpani = Instrument::by_id("timbales").expect("the catalogue has timpani");
+        let mut seen = 0;
+        for seed in 0..12 {
+            let mut c = Composer::new(library(), seed);
+            c.iterations = 40;
+            c.set_state(MusicState {
+                voices: 4,
+                percussion: 0.9,
+                wealth: 0.8,
+                ..MusicState::default()
+            });
+            for _ in 0..16 {
+                let bar = c.next_bar();
+                for n in bar.notes.iter().filter(|n| n.channel == TIMPANI_CHANNEL) {
+                    seen += 1;
+                    let key = i32::from(n.key);
+                    assert!(
+                        key >= timpani.range.0 && key <= timpani.range.1,
+                        "timpani played {key} in {}, outside {:?}",
+                        bar.key,
+                        timpani.range
+                    );
+                }
+            }
+        }
+        assert!(seen > 0, "no timpani sounded, so nothing was checked");
+    }
+
+    #[test]
     fn triggers_and_state_changes_are_honoured() {
         let mut c = Composer::new(library(), 9);
         c.iterations = 100;

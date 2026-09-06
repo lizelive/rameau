@@ -31,7 +31,10 @@ pub enum Vowel {
     In,
 }
 
-/// One formant: centre frequency in Hz, bandwidth in Hz, relative gain.
+/// One formant of the vocal tract: a resonance, given by its centre
+/// frequency and bandwidth. Amplitude is not carried here — the resonators
+/// are run in cascade, where each formant's level follows from the ones
+/// below it rather than being set independently.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Formant {
     /// Centre frequency in Hz (for an adult male voice).

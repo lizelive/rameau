@@ -227,7 +227,12 @@ impl Scale {
     /// reference tonic at 60 and a B scale at 71.
     pub const fn tonic_midi(&self, anchor: Midi) -> Midi {
         let base = anchor - anchor.rem_euclid(12);
-        base + self.tonic.semitones() as i32
+        let tonic = base + self.tonic.semitones() as i32;
+        // `base` is the C at or below `anchor`, so a tonic below the anchor's
+        // own pitch class lands under it; the next octave up is the one the
+        // documentation promises. Callers anchor to the bottom of an
+        // instrument's range, and a tonic below it is out of range.
+        if tonic < anchor { tonic + 12 } else { tonic }
     }
 
     /// Resolves a [`DegreeNote`] to a MIDI key with the reference tonic at or
@@ -374,6 +379,25 @@ mod tests {
         assert_eq!(n.transposed(1), DegreeNote::new(0, 0, 1));
         assert_eq!(n.transposed(-7), DegreeNote::new(6, 0, -1));
         assert_eq!(DegreeNote::new(2, 1, 0).inverted_about(0), DegreeNote::new(5, -1, -1));
+    }
+
+    #[test]
+    fn the_reference_tonic_never_falls_below_its_anchor() {
+        // 41 is the bottom of the timpani's range: anchoring there must not
+        // hand back a key under it.
+        for pc in 0..12 {
+            for anchor in [36, 41, 55, 60, 72] {
+                let s = Scale::new(PitchClass::new(pc), Mode::Major);
+                let t = s.tonic_midi(anchor);
+                assert!(t >= anchor, "{s} anchored at {anchor} gave {t}");
+                assert!(t < anchor + 12, "{s} anchored at {anchor} gave {t}, more than an octave up");
+                assert_eq!(PitchClass::of_midi(t), s.tonic);
+            }
+        }
+        // The anchors that fall on a C are unchanged, so degree-encoded
+        // ideas (which resolve against 60) keep their pitches.
+        assert_eq!(Scale::new(PitchClass::G, Mode::Major).tonic_midi(60), 67);
+        assert_eq!(Scale::new(PitchClass::C, Mode::Major).tonic_midi(60), 60);
     }
 
     #[test]
