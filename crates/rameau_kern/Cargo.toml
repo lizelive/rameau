@@ -1,13 +1,14 @@
 [package]
-name = "rameau_types"
+name = "rameau_kern"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Shared core types for the rameau workspace: a small deterministic RNG and weighted choice"
+description = "A Humdrum **kern parser: spines, chords, ties and barlines into timed notes"
 
 [dependencies]
+rameau_theory = { path = "../rameau_theory", version = "0.2.0" }
 
 [lints]
 workspace = true

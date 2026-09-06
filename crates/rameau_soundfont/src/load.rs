@@ -691,7 +691,12 @@ fn build_samples<P: AudioPlayback>(
                 let begin = header.start as usize * 2;
                 let finish = header.end.max(header.end_loop) as usize * 2;
                 let bytes = slice(smpl, begin, finish)?;
-                let pcm: Vec<i16> = bytes.chunks_exact(2).map(|c| le_i16(c, 0)).collect();
+                let pcm: Vec<i16> = bytes
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| i16::from_le_bytes(*c))
+                    .collect();
                 let frame_count = pcm.len() as u32;
                 let clip = backend.clip_from_pcm(&pcm, header.sample_rate)?;
                 (
@@ -761,8 +766,4 @@ fn bytes_at<const N: usize>(d: &[u8], at: usize) -> [u8; N] {
 
 fn le_u16(d: &[u8], at: usize) -> u16 {
     u16::from_le_bytes(bytes_at(d, at))
-}
-
-fn le_i16(d: &[u8], at: usize) -> i16 {
-    i16::from_le_bytes(bytes_at(d, at))
 }

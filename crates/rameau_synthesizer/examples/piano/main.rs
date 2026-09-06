@@ -121,7 +121,7 @@ fn main() {
     // and hand each command straight to the synth the moment it arrives —
     // MIDI input and typing share the same path.
     let keys = std::thread::spawn({
-        let tx = tx.clone();
+        let tx = tx;
         move || {
             if let Err(e) = input::run_keyboard(&tx) {
                 eprintln!();
@@ -154,13 +154,13 @@ fn test_tone(synth: &mut audio::Synth) {
     println!("playing a test tone (no keyboard input involved)...");
     for key in [60u8, 64, 67, 72] {
         let _ = audio::apply(synth, input::Command::NoteOn { key, vel: 100 });
-        std::thread::sleep(std::time::Duration::from_millis(400));
+        std::thread::sleep(core::time::Duration::from_millis(400));
     }
-    std::thread::sleep(std::time::Duration::from_millis(800));
+    std::thread::sleep(core::time::Duration::from_millis(800));
     for key in [60u8, 64, 67, 72] {
         let _ = audio::apply(synth, input::Command::NoteOff { key });
     }
-    std::thread::sleep(std::time::Duration::from_millis(800));
+    std::thread::sleep(core::time::Duration::from_millis(800));
     println!("done");
 }
 
