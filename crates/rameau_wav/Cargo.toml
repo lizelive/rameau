@@ -8,7 +8,7 @@ homepage.workspace = true
 description = "16-bit PCM WAV writer"
 
 [dependencies]
-rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
+rameau_clip = { path = "../rameau_clip", version = "0.2.1" }
 
 [lints]
 workspace = true

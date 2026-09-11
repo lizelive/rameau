@@ -8,18 +8,18 @@ homepage.workspace = true
 description = "SoundFont synthesizer driving a playback backend"
 
 [dependencies]
-rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
-rameau_midi = { path = "../rameau_midi", version = "0.2.0" }
-rameau_playback = { path = "../rameau_playback", version = "0.2.0" }
-rameau_soundfont = { path = "../rameau_soundfont", version = "0.2.0" }
+rameau_clip = { path = "../rameau_clip", version = "0.2.1" }
+rameau_midi = { path = "../rameau_midi", version = "0.2.1" }
+rameau_playback = { path = "../rameau_playback", version = "0.2.1" }
+rameau_soundfont = { path = "../rameau_soundfont", version = "0.2.1" }
 
 [dev-dependencies]
 crossterm = "0.29.0"
 midir = "0.11.0"
-rameau_kira = { path = "../rameau_kira", version = "0.2.0" }
-rameau_software = { path = "../rameau_software", version = "0.2.0" }
-rameau_tinyaudio = { path = "../rameau_tinyaudio", version = "0.2.0" }
-rameau_wav = { path = "../rameau_wav", version = "0.2.0" }
+rameau_kira = { path = "../rameau_kira", version = "0.2.1" }
+rameau_software = { path = "../rameau_software", version = "0.2.1" }
+rameau_tinyaudio = { path = "../rameau_tinyaudio", version = "0.2.1" }
+rameau_wav = { path = "../rameau_wav", version = "0.2.1" }
 
 [[example]]
 name = "piano"

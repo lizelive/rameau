@@ -8,8 +8,8 @@ homepage.workspace = true
 description = "Chords, roman numerals and a period harmonic grammar for the rameau workspace"
 
 [dependencies]
-rameau_theory = { path = "../rameau_theory", version = "0.2.0" }
-rameau_types = { path = "../rameau_types", version = "0.2.0" }
+rameau_theory = { path = "../rameau_theory", version = "0.2.1" }
+rameau_types = { path = "../rameau_types", version = "0.2.1" }
 serde = { version = "1", optional = true, features = ["derive"] }
 
 [features]

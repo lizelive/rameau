@@ -9,8 +9,8 @@ description = "Real-time AudioPlayback backend on kira"
 
 [dependencies]
 kira = "0.12"
-rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
-rameau_playback = { path = "../rameau_playback", version = "0.2.0" }
+rameau_clip = { path = "../rameau_clip", version = "0.2.1" }
+rameau_playback = { path = "../rameau_playback", version = "0.2.1" }
 
 [lints]
 workspace = true

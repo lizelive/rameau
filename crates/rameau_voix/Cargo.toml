@@ -8,15 +8,15 @@ homepage.workspace = true
 description = "A formant-synthesized singing voice packaged as a SoundFont bank: vowels, choir, and text-to-vowel reduction"
 
 [dependencies]
-rameau_midi = { path = "../rameau_midi", version = "0.2.0" }
-rameau_playback = { path = "../rameau_playback", version = "0.2.0" }
-rameau_soundfont = { path = "../rameau_soundfont", version = "0.2.0" }
-rameau_types = { path = "../rameau_types", version = "0.2.0" }
+rameau_midi = { path = "../rameau_midi", version = "0.2.1" }
+rameau_playback = { path = "../rameau_playback", version = "0.2.1" }
+rameau_soundfont = { path = "../rameau_soundfont", version = "0.2.1" }
+rameau_types = { path = "../rameau_types", version = "0.2.1" }
 
 [dev-dependencies]
-rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
-rameau_software = { path = "../rameau_software", version = "0.2.0" }
-rameau_synthesizer = { path = "../rameau_synthesizer", version = "0.2.0" }
+rameau_clip = { path = "../rameau_clip", version = "0.2.1" }
+rameau_software = { path = "../rameau_software", version = "0.2.1" }
+rameau_synthesizer = { path = "../rameau_synthesizer", version = "0.2.1" }
 
 [lints]
 workspace = true

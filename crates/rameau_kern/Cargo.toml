@@ -8,7 +8,7 @@ homepage.workspace = true
 description = "A Humdrum **kern parser: spines, chords, ties and barlines into timed notes"
 
 [dependencies]
-rameau_theory = { path = "../rameau_theory", version = "0.2.0" }
+rameau_theory = { path = "../rameau_theory", version = "0.2.1" }
 
 [lints]
 workspace = true

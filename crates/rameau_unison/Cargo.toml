@@ -8,8 +8,8 @@ homepage.workspace = true
 description = "The Unison SoundFont bank (CC0-1.0), embedded as compressed .sf3"
 
 [dependencies]
-rameau_playback = { path = "../rameau_playback", version = "0.2.0" }
-rameau_soundfont = { path = "../rameau_soundfont", version = "0.2.0" }
+rameau_playback = { path = "../rameau_playback", version = "0.2.1" }
+rameau_soundfont = { path = "../rameau_soundfont", version = "0.2.1" }
 
 [lints]
 workspace = true

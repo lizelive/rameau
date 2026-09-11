@@ -11,12 +11,12 @@ description = "SoundFont-based MIDI playback behind a high-level MusicEngine"
 exclude = ["assets"]
 
 [dependencies]
-rameau_kira = { path = "crates/rameau_kira", version = "0.2.0" }
-rameau_midi = { path = "crates/rameau_midi", version = "0.2.0" }
-rameau_playback = { path = "crates/rameau_playback", version = "0.2.0" }
-rameau_soundfont = { path = "crates/rameau_soundfont", version = "0.2.0" }
-rameau_synthesizer = { path = "crates/rameau_synthesizer", version = "0.2.0" }
-rameau_unison = { path = "crates/rameau_unison", version = "0.2.0", optional = true }
+rameau_kira = { path = "crates/rameau_kira", version = "0.2.1" }
+rameau_midi = { path = "crates/rameau_midi", version = "0.2.1" }
+rameau_playback = { path = "crates/rameau_playback", version = "0.2.1" }
+rameau_soundfont = { path = "crates/rameau_soundfont", version = "0.2.1" }
+rameau_synthesizer = { path = "crates/rameau_synthesizer", version = "0.2.1" }
+rameau_unison = { path = "crates/rameau_unison", version = "0.2.1", optional = true }
 
 [features]
 default = []
@@ -36,7 +36,7 @@ workspace = true
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/lizelive/rameau"

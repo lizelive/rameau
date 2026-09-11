@@ -8,7 +8,7 @@ homepage.workspace = true
 description = "Backend-independent device and sample-engine traits"
 
 [dependencies]
-rameau_clip = { path = "../rameau_clip", version = "0.2.0" }
+rameau_clip = { path = "../rameau_clip", version = "0.2.1" }
 
 [lints]
 workspace = true
